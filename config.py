@@ -1,4 +1,4 @@
-TOKEN = "SEU_TOKEN_DO_BOT"
+TOKEN = "8678750605:AAGfbCBbNVm9FqOC7aR_hzR1p-8JB1URMJI"
 
 PIX = "moraes3361@gmail.com"
 
