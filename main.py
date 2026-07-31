@@ -3,7 +3,7 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes
 import os
 
-TOKEN = os.getenv("8678750605:AAGfbCBbNVm9FqOC7aR_hzR1p-8JB1URMJI")
+TOKEN = os.getenv("BOT_TOKEN")
 
 WELCOME = """🎉 *Bem-vindo à PLAYERSTORE!*
 
