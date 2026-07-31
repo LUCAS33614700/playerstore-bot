@@ -1,97 +1,203 @@
-# PLAYERSTORE Bot (modelo inicial)
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes
-import os
+# ==========================================
+# PLAYER STORE V2
+# Desenvolvido para PLAYER STORE
+# ==========================================
 
-TOKEN = os.getenv("BOT_TOKEN")
+from telegram import (
+    Update,
+    InlineKeyboardMarkup,
+    InlineKeyboardButton
+)
 
-WELCOME = """🎉 *Bem-vindo à PLAYERSTORE!*
+from telegram.ext import (
+    Application,
+    CommandHandler,
+    CallbackQueryHandler,
+    ContextTypes
+)
 
-🏆 Sua loja de contas digitais.
+from config import TOKEN, NOME_LOJA
+from menu import menu_principal
+from catalogo import CATALOGO, teclado_catalogo
+
+WELCOME = f"""
+🎉 *Bem-vindo à {NOME_LOJA}!*
+
+🏆 Sua loja de contas premium.
 
 📺 Streaming
 🎮 Games
-💻 Produtividade
+🤖 Apps Premium
 
 Escolha uma opção abaixo.
 """
 
-CATALOGO = """🛍️ *CATÁLOGO*
-
-📺 Netflix
-📺 Prime Video
-🍿 Disney+
-🎥 Max
-🎞️ Paramount+
-🥋 Crunchyroll
-📺 Apple TV+
-📺 Globoplay
-📡 Globoplay + Canais
-📺 Universal+
-📺 Telecine
-📺 MUBI
-📺 Discovery+
-▶️ YouTube Premium
-🎵 Spotify Premium
-🎵 Deezer Premium
-🎵 Tidal HiFi
-
-🎮 Xbox Game Pass
-🎮 PlayStation Plus
-🎮 EA Play
-🎮 Ubisoft+
-
-🤖 ChatGPT Plus
-🎨 Canva Pro
-💼 Microsoft 365
-☁️ Google One
-📂 Dropbox Plus
-"""
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    kb = [
-        [InlineKeyboardButton("🛍️ Catálogo", callback_data="catalogo")],
-        [InlineKeyboardButton("💳 Pagamento", callback_data="pagamento")],
-        [InlineKeyboardButton("🛠️ Suporte", callback_data="suporte")]
-    ]
+
     await update.message.reply_text(
         WELCOME,
         parse_mode="Markdown",
-        reply_markup=InlineKeyboardMarkup(kb)
-    )
+        reply_markup=menu_principal()
+    )# ==========================================
+# MENU PRINCIPAL
+# ==========================================
 
 async def buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    q = update.callback_query
-    await q.answer()
 
-    if q.data == "catalogo":
-        await q.edit_message_text(CATALOGO, parse_mode="Markdown")
+    query = update.callback_query
+    await query.answer()
 
-    elif q.data == "pagamento":
-        await q.edit_message_text(
-            "💳 *Pagamento*\n\n"
-            "Pix:\n"
-            "`moraes3361@gmail.com`\n\n"
-            "Após o pagamento envie o comprovante.\n\n"
-            "WhatsApp:\nhttps://wa.me/559293592126\n\n"
-            "Telegram:\nhttps://t.me/sr_PICKLES",
+    # ===== CATÁLOGO =====
+
+    if query.data == "catalogo":
+
+        await query.edit_message_text(
+            text=CATALOGO,
             parse_mode="Markdown",
-            disable_web_page_preview=True
+            reply_markup=teclado_catalogo()
         )
 
-    elif q.data == "suporte":
-        await q.edit_message_text(
-            "🛠️ *Suporte*\n\n"
-            "WhatsApp:\nhttps://wa.me/559293592126\n\n"
-            "Telegram:\nhttps://t.me/sr_PICKLES",
+    # ===== CARRINHO =====
+
+    elif query.data == "carrinho":
+
+        keyboard = [
+            [InlineKeyboardButton("⬅️ Voltar", callback_data="inicio")]
+        ]
+
+        await query.edit_message_text(
+            "🛒 *Seu carrinho está vazio.*",
             parse_mode="Markdown",
-            disable_web_page_preview=True
+            reply_markup=InlineKeyboardMarkup(keyboard)
         )
 
-app = Application.builder().token(TOKEN).build()
-app.add_handler(CommandHandler("start", start))
-app.add_handler(CallbackQueryHandler(buttons))
+    # ===== PERFIL =====
 
-if __name__ == "__main__":
-    app.run_polling()
-    
+    elif query.data == "perfil":
+
+        usuario = query.from_user
+
+        keyboard = [
+            [InlineKeyboardButton("⬅️ Voltar", callback_data="inicio")]
+        ]
+
+        await query.edit_message_text(
+            f"""
+👤 *Meu Perfil*
+
+🆔 ID: `{usuario.id}`
+
+👤 Nome: {usuario.first_name}
+
+💰 Saldo: R$ 0,00
+""",
+            parse_mode="Markdown",
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+
+    # ===== ADICIONAR SALDO =====
+
+    elif query.data == "saldo":
+
+        keyboard = [
+            [InlineKeyboardButton("💳 Ver Pix", callback_data="pagamento")],
+            [InlineKeyboardButton("⬅️ Voltar", callback_data="inicio")]
+        ]
+
+        await query.edit_message_text(
+            "💰 *Adicionar saldo à sua conta.*",
+            parse_mode="Markdown",
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )    # ===== MEUS PEDIDOS =====
+
+    elif query.data == "pedidos":
+
+        keyboard = [
+            [InlineKeyboardButton("⬅️ Voltar", callback_data="inicio")]
+        ]
+
+        await query.edit_message_text(
+            """
+📦 *MEUS PEDIDOS*
+
+Você ainda não possui pedidos cadastrados.
+
+Assim que realizar uma compra, ela aparecerá aqui.
+""",
+            parse_mode="Markdown",
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+
+    # ===== RENOVAR =====
+
+    elif query.data == "renovar":
+
+        keyboard = [
+            [InlineKeyboardButton("📲 WhatsApp", url="https://wa.me/559293592126?text=Olá! Quero renovar minha assinatura.")],
+            [InlineKeyboardButton("💬 Telegram", url="https://t.me/sr_PICKLES")],
+            [InlineKeyboardButton("⬅️ Voltar", callback_data="inicio")]
+        ]
+
+        await query.edit_message_text(
+            """
+🔄 *RENOVAÇÃO*
+
+Renove sua assinatura de forma rápida.
+
+Escolha um dos canais abaixo.
+""",
+            parse_mode="Markdown",
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+
+    # ===== SUPORTE =====
+
+    elif query.data == "suporte":
+
+        keyboard = [
+            [InlineKeyboardButton("📲 WhatsApp", url="https://wa.me/559293592126")],
+            [InlineKeyboardButton("💬 Telegram", url="https://t.me/sr_PICKLES")],
+            [InlineKeyboardButton("⬅️ Voltar", callback_data="inicio")]
+        ]
+
+        await query.edit_message_text(
+            """
+🛠️ *SUPORTE*
+
+Estamos prontos para atender você.
+
+📅 Atendimento diário.
+""",
+            parse_mode="Markdown",
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+
+    # ===== GRUPO VIP =====
+
+    elif query.data == "grupo":
+
+        keyboard = [
+            [InlineKeyboardButton("👥 Entrar no Grupo", url="https://t.me/sr_PICKLES")],
+            [InlineKeyboardButton("⬅️ Voltar", callback_data="inicio")]
+        ]
+
+        await query.edit_message_text(
+            """
+👥 *GRUPO VIP*
+
+Entre no nosso grupo para acompanhar novidades, promoções e lançamentos.
+""",
+            parse_mode="Markdown",
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+
+    # ===== VOLTAR AO MENU =====
+
+    elif query.data == "inicio":
+
+        await query.edit_message_text(
+            WELCOME,
+            parse_mode="Markdown",
+            reply_markup=menu_principal()
+        )
