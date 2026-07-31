@@ -55,7 +55,8 @@ async def buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
             text=WELCOME,
             parse_mode="Markdown",
             reply_markup=menu_principal()
-        )    elif query.data == "carrinho":
+        )
+elif query.data == "carrinho":
 
         await query.edit_message_text(
             "🛒 *Carrinho*\n\nSeu carrinho está vazio.",
