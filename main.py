@@ -35,6 +35,79 @@ async def buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif query.data=="pagamento":
         await query.edit_message_text("💳 Pix: moraes3361@gmail.com", parse_mode="Markdown", reply_markup=menu_principal())
     elif query.data=="promocoes":
+            elif query.data == "cat_streaming":
+
+        texto = """
+📺 *STREAMING*
+
+• Netflix
+• Prime Video
+• Disney+
+• Max
+• Apple TV+
+• Globoplay
+• Paramount+
+• Crunchyroll
+• Discovery+
+"""
+
+        await query.edit_message_text(
+            texto,
+            parse_mode="Markdown",
+            reply_markup=teclado_catalogo()
+        )
+
+    elif query.data == "cat_musica":
+
+        texto = """
+🎵 *MÚSICA*
+
+• Spotify Premium
+• Deezer Premium
+• YouTube Premium
+• Tidal HiFi
+"""
+
+        await query.edit_message_text(
+            texto,
+            parse_mode="Markdown",
+            reply_markup=teclado_catalogo()
+        )
+
+    elif query.data == "cat_games":
+
+        texto = """
+🎮 *GAMES*
+
+• Xbox Game Pass
+• PlayStation Plus
+• EA Play
+• Ubisoft+
+"""
+
+        await query.edit_message_text(
+            texto,
+            parse_mode="Markdown",
+            reply_markup=teclado_catalogo()
+        )
+
+    elif query.data == "cat_apps":
+
+        texto = """
+🤖 *IA E APPS*
+
+• ChatGPT Plus
+• Canva Pro
+• Microsoft 365
+• Google One
+• Dropbox Plus
+"""
+
+        await query.edit_message_text(
+            texto,
+            parse_mode="Markdown",
+            reply_markup=teclado_catalogo()
+)
         await query.edit_message_text("🎁 Promoções.", parse_mode="Markdown", reply_markup=menu_principal())
     elif query.data=="suporte":
         await query.edit_message_text("🛠️ WhatsApp: https://wa.me/559293592126", parse_mode="Markdown", disable_web_page_preview=True, reply_markup=menu_principal())
