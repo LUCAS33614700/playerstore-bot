@@ -1,8 +1,9 @@
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 
+
 def menu_principal():
 
-    teclado = [
+    keyboard = [
 
         [
             InlineKeyboardButton("🛍️ Catálogo", callback_data="catalogo"),
@@ -10,8 +11,8 @@ def menu_principal():
         ],
 
         [
-            InlineKeyboardButton("💰 Saldo", callback_data="saldo"),
-            InlineKeyboardButton("👤 Perfil", callback_data="perfil")
+            InlineKeyboardButton("👤 Perfil", callback_data="perfil"),
+            InlineKeyboardButton("💰 Saldo", callback_data="saldo")
         ],
 
         [
@@ -25,7 +26,7 @@ def menu_principal():
         ],
 
         [
-            InlineKeyboardButton("📞 Suporte", callback_data="suporte"),
+            InlineKeyboardButton("🛠️ Suporte", callback_data="suporte"),
             InlineKeyboardButton("👥 Grupo VIP", callback_data="grupo")
         ],
 
@@ -35,4 +36,4 @@ def menu_principal():
 
     ]
 
-    return InlineKeyboardMarkup(teclado)
+    return InlineKeyboardMarkup(keyboard)
