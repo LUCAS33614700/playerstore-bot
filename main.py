@@ -1,68 +1,97 @@
-from telegram import Update
-from telegram.ext import Application, CommandHandler, ContextTypes
+# PLAYERSTORE Bot (modelo inicial)
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes
+import os
 
-TOKEN = "8678750605:AAGfbCBbNVm9FqOC7aR_hzR1p-8JB1URMJI"
+TOKEN = os.getenv("8678750605:AAGfbCBbNVm9FqOC7aR_hzR1p-8JB1URMJI")
+
+WELCOME = """🎉 *Bem-vindo à PLAYERSTORE!*
+
+🏆 Sua loja de contas digitais.
+
+📺 Streaming
+🎮 Games
+💻 Produtividade
+
+Escolha uma opção abaixo.
+"""
+
+CATALOGO = """🛍️ *CATÁLOGO*
+
+📺 Netflix
+📺 Prime Video
+🍿 Disney+
+🎥 Max
+🎞️ Paramount+
+🥋 Crunchyroll
+📺 Apple TV+
+📺 Globoplay
+📡 Globoplay + Canais
+📺 Universal+
+📺 Telecine
+📺 MUBI
+📺 Discovery+
+▶️ YouTube Premium
+🎵 Spotify Premium
+🎵 Deezer Premium
+🎵 Tidal HiFi
+
+🎮 Xbox Game Pass
+🎮 PlayStation Plus
+🎮 EA Play
+🎮 Ubisoft+
+
+🤖 ChatGPT Plus
+🎨 Canva Pro
+💼 Microsoft 365
+☁️ Google One
+📂 Dropbox Plus
+"""
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    kb = [
+        [InlineKeyboardButton("🛍️ Catálogo", callback_data="catalogo")],
+        [InlineKeyboardButton("💳 Pagamento", callback_data="pagamento")],
+        [InlineKeyboardButton("🛠️ Suporte", callback_data="suporte")]
+    ]
     await update.message.reply_text(
-        """🎬 Bem-vindo à PLAYERSTORE!
-
-Escolha um comando:
-
-📺 /planos
-💰 /precos
-💳 /pagamento
-🛠️ /suporte"""
+        WELCOME,
+        parse_mode="Markdown",
+        reply_markup=InlineKeyboardMarkup(kb)
     )
 
-async def planos(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(
-        """📺 Planos disponíveis
+async def buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    q = update.callback_query
+    await q.answer()
 
-• Netflix
-• Disney+
-• Prime Video
-• Max
-• HBO Max
-• Spotify
-• Xbox Game Pass
-• ChatGPT Plus
-• Canva Pro
+    if q.data == "catalogo":
+        await q.edit_message_text(CATALOGO, parse_mode="Markdown")
 
-Digite /precos para consultar os valores."""
-    )
+    elif q.data == "pagamento":
+        await q.edit_message_text(
+            "💳 *Pagamento*\n\n"
+            "Pix:\n"
+            "`moraes3361@gmail.com`\n\n"
+            "Após o pagamento envie o comprovante.\n\n"
+            "WhatsApp:\nhttps://wa.me/559293592126\n\n"
+            "Telegram:\nhttps://t.me/sr_PICKLES",
+            parse_mode="Markdown",
+            disable_web_page_preview=True
+        )
 
-async def precos(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(
-        """💰 Valores
-
-Netflix - R$ 14,90
-Disney+ - R$ 14,90
-Prime Video - R$ 14,90
-Max - R$ 14,90
-Spotify - R$ 9,90
-Xbox Game Pass - R$ 19,90
-ChatGPT Plus - R$ 19,90
-Canva Pro - R$ 9,90"""
-    )
-
-async def pagamento(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(
-        "💳 Pagamento via Pix.\n\nEnvie o comprovante após o pagamento."
-    )
-
-async def suporte(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(
-        "🛠️ Suporte\n\nFale com o administrador da PLAYERSTORE."
-    )
+    elif q.data == "suporte":
+        await q.edit_message_text(
+            "🛠️ *Suporte*\n\n"
+            "WhatsApp:\nhttps://wa.me/559293592126\n\n"
+            "Telegram:\nhttps://t.me/sr_PICKLES",
+            parse_mode="Markdown",
+            disable_web_page_preview=True
+        )
 
 app = Application.builder().token(TOKEN).build()
-
 app.add_handler(CommandHandler("start", start))
-app.add_handler(CommandHandler("planos", planos))
-app.add_handler(CommandHandler("precos", precos))
-app.add_handler(CommandHandler("pagamento", pagamento))
-app.add_handler(CommandHandler("suporte", suporte))
+app.add_handler(CallbackQueryHandler(buttons))
 
-print("Bot iniciado...")
-app.run_polling()
+if __name__ == "__main__":
+    app.run_polling()
+    
