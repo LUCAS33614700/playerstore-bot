@@ -1,14 +1,4 @@
-# ==========================================
-# PLAYER STORE V2
-# Desenvolvido para PLAYER STORE
-# ==========================================
-
-from telegram import (
-    Update,
-    InlineKeyboardMarkup,
-    InlineKeyboardButton
-)
-
+from telegram import Update
 from telegram.ext import (
     Application,
     CommandHandler,
@@ -21,17 +11,20 @@ from menu import menu_principal
 from catalogo import CATALOGO, teclado_catalogo
 
 WELCOME = f"""
-🎉 *Bem-vindo à {NOME_LOJA}!*
+🏪 *{NOME_LOJA}*
 
-🏆 Sua loja de contas premium.
+━━━━━━━━━━━━━━━━━━━━
 
-📺 Streaming
-🎮 Games
-🤖 Apps Premium
+🏆 Sua loja de Streaming, Games e Apps Premium.
+
+⚡ Entrega rápida
+🔒 Compra segura
+🛠️ Suporte garantido
+
+━━━━━━━━━━━━━━━━━━━━
 
 Escolha uma opção abaixo.
 """
-
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
@@ -39,16 +32,14 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         WELCOME,
         parse_mode="Markdown",
         reply_markup=menu_principal()
-    )# ==========================================
-# MENU PRINCIPAL
-# ==========================================
+    )
+
 
 async def buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     query = update.callback_query
-    await query.answer()
 
-    # ===== CATÁLOGO =====
+    await query.answer()
 
     if query.data == "catalogo":
 
@@ -58,32 +49,25 @@ async def buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
             reply_markup=teclado_catalogo()
         )
 
-    # ===== CARRINHO =====
-
-    elif query.data == "carrinho":
-
-        keyboard = [
-            [InlineKeyboardButton("⬅️ Voltar", callback_data="inicio")]
-        ]
+    elif query.data == "inicio":
 
         await query.edit_message_text(
-            "🛒 *Seu carrinho está vazio.*",
+            text=WELCOME,
             parse_mode="Markdown",
-            reply_markup=InlineKeyboardMarkup(keyboard)
-        )
+            reply_markup=menu_principal()
+        )    elif query.data == "carrinho":
 
-    # ===== PERFIL =====
+        await query.edit_message_text(
+            "🛒 *Carrinho*\n\nSeu carrinho está vazio.",
+            parse_mode="Markdown",
+            reply_markup=menu_principal()
+        )
 
     elif query.data == "perfil":
 
         usuario = query.from_user
 
-        keyboard = [
-            [InlineKeyboardButton("⬅️ Voltar", callback_data="inicio")]
-        ]
-
-        await query.edit_message_text(
-            f"""
+        texto = f"""
 👤 *Meu Perfil*
 
 🆔 ID: `{usuario.id}`
@@ -91,113 +75,162 @@ async def buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
 👤 Nome: {usuario.first_name}
 
 💰 Saldo: R$ 0,00
-""",
-            parse_mode="Markdown",
-            reply_markup=InlineKeyboardMarkup(keyboard)
-        )
 
-    # ===== ADICIONAR SALDO =====
-
-    elif query.data == "saldo":
-
-        keyboard = [
-            [InlineKeyboardButton("💳 Ver Pix", callback_data="pagamento")],
-            [InlineKeyboardButton("⬅️ Voltar", callback_data="inicio")]
-        ]
+📦 Pedidos: 0
+"""
 
         await query.edit_message_text(
-            "💰 *Adicionar saldo à sua conta.*",
-            parse_mode="Markdown",
-            reply_markup=InlineKeyboardMarkup(keyboard)
-        )    # ===== MEUS PEDIDOS =====
-
-    elif query.data == "pedidos":
-
-        keyboard = [
-            [InlineKeyboardButton("⬅️ Voltar", callback_data="inicio")]
-        ]
-
-        await query.edit_message_text(
-            """
-📦 *MEUS PEDIDOS*
-
-Você ainda não possui pedidos cadastrados.
-
-Assim que realizar uma compra, ela aparecerá aqui.
-""",
-            parse_mode="Markdown",
-            reply_markup=InlineKeyboardMarkup(keyboard)
-        )
-
-    # ===== RENOVAR =====
-
-    elif query.data == "renovar":
-
-        keyboard = [
-            [InlineKeyboardButton("📲 WhatsApp", url="https://wa.me/559293592126?text=Olá! Quero renovar minha assinatura.")],
-            [InlineKeyboardButton("💬 Telegram", url="https://t.me/sr_PICKLES")],
-            [InlineKeyboardButton("⬅️ Voltar", callback_data="inicio")]
-        ]
-
-        await query.edit_message_text(
-            """
-🔄 *RENOVAÇÃO*
-
-Renove sua assinatura de forma rápida.
-
-Escolha um dos canais abaixo.
-""",
-            parse_mode="Markdown",
-            reply_markup=InlineKeyboardMarkup(keyboard)
-        )
-
-    # ===== SUPORTE =====
-
-    elif query.data == "suporte":
-
-        keyboard = [
-            [InlineKeyboardButton("📲 WhatsApp", url="https://wa.me/559293592126")],
-            [InlineKeyboardButton("💬 Telegram", url="https://t.me/sr_PICKLES")],
-            [InlineKeyboardButton("⬅️ Voltar", callback_data="inicio")]
-        ]
-
-        await query.edit_message_text(
-            """
-🛠️ *SUPORTE*
-
-Estamos prontos para atender você.
-
-📅 Atendimento diário.
-""",
-            parse_mode="Markdown",
-            reply_markup=InlineKeyboardMarkup(keyboard)
-        )
-
-    # ===== GRUPO VIP =====
-
-    elif query.data == "grupo":
-
-        keyboard = [
-            [InlineKeyboardButton("👥 Entrar no Grupo", url="https://t.me/sr_PICKLES")],
-            [InlineKeyboardButton("⬅️ Voltar", callback_data="inicio")]
-        ]
-
-        await query.edit_message_text(
-            """
-👥 *GRUPO VIP*
-
-Entre no nosso grupo para acompanhar novidades, promoções e lançamentos.
-""",
-            parse_mode="Markdown",
-            reply_markup=InlineKeyboardMarkup(keyboard)
-        )
-
-    # ===== VOLTAR AO MENU =====
-
-    elif query.data == "inicio":
-
-        await query.edit_message_text(
-            WELCOME,
+            texto,
             parse_mode="Markdown",
             reply_markup=menu_principal()
         )
+
+    elif query.data == "saldo":
+
+        texto = """
+💰 *Adicionar Saldo*
+
+Forma de pagamento:
+
+💳 Pix
+
+Após realizar o pagamento, envie o comprovante ao suporte.
+"""
+
+        await query.edit_message_text(
+            texto,
+            parse_mode="Markdown",
+            reply_markup=menu_principal()
+        )
+
+    elif query.data == "pedidos":
+
+        await query.edit_message_text(
+            "📦 *Meus Pedidos*\n\nVocê ainda não possui pedidos.",
+            parse_mode="Markdown",
+            reply_markup=menu_principal()
+)    elif query.data == "renovar":
+
+        texto = """
+🔄 *Renovação*
+
+Renove sua assinatura de forma rápida.
+
+Escolha um canal abaixo para continuar.
+"""
+
+        await query.edit_message_text(
+            texto,
+            parse_mode="Markdown",
+            reply_markup=menu_principal()
+        )
+
+    elif query.data == "pagamento":
+
+        texto = """
+💳 *Pagamento*
+
+━━━━━━━━━━━━━━
+
+💠 PIX
+
+📧 Chave Pix
+
+moraes3361@gmail.com
+
+━━━━━━━━━━━━━━
+
+Após o pagamento envie o comprovante ao suporte.
+"""
+
+        await query.edit_message_text(
+            texto,
+            parse_mode="Markdown",
+            reply_markup=menu_principal()
+        )
+
+    elif query.data == "promocoes":
+
+        texto = """
+🎁 *Promoções*
+
+🔥 Confira nossas promoções entrando em contato com o suporte.
+
+As ofertas são atualizadas frequentemente.
+"""
+
+        await query.edit_message_text(
+            texto,
+            parse_mode="Markdown",
+            reply_markup=menu_principal()
+        )
+
+    elif query.data == "suporte":
+
+        texto = """
+🛠️ *Suporte*
+
+📲 WhatsApp
+https://wa.me/559293592126
+
+💬 Telegram
+https://t.me/sr_PICKLES
+"""
+
+        await query.edit_message_text(
+            texto,
+            parse_mode="Markdown",
+            reply_markup=menu_principal()
+        )
+
+    elif query.data == "grupo":
+
+        texto = """
+👥 *Grupo VIP*
+
+Em breve você poderá entrar no grupo exclusivo da PLAYER STORE.
+"""
+
+        await query.edit_message_text(
+            texto,
+            parse_mode="Markdown",
+            reply_markup=menu_principal()
+        )
+
+    elif query.data == "faq":
+
+        texto = """
+❓ *Perguntas Frequentes*
+
+• Como recebo meu acesso?
+Após a confirmação do pagamento.
+
+• Qual a forma de pagamento?
+Pix.
+
+• Tem suporte?
+Sim, durante o período contratado.
+"""
+
+        await query.edit_message_text(
+            texto,
+            parse_mode="Markdown",
+            reply_markup=menu_principal()
+)# ==========================================
+# INICIALIZAÇÃO DO BOT
+# ==========================================
+
+def main():
+
+    app = Application.builder().token(TOKEN).build()
+
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(CallbackQueryHandler(buttons))
+
+    print(f"{NOME_LOJA} iniciado com sucesso!")
+
+    app.run_polling()
+
+
+if __name__ == "__main__":
+    main()
