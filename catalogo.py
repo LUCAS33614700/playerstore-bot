@@ -1,18 +1,72 @@
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+from database import conectar
 
-CATALOGO = """
-🛍 *CATÁLOGO PLAYER STORE*
 
-Escolha uma categoria:
-"""
+def listar_produtos():
+    conn = conectar()
+    cursor = conn.cursor()
 
-def teclado_catalogo():
-    teclado = [
-        [InlineKeyboardButton("📺 Streaming", callback_data="cat_streaming")],
-        [InlineKeyboardButton("🎵 Música", callback_data="cat_musica")],
-        [InlineKeyboardButton("🎮 Games", callback_data="cat_games")],
-        [InlineKeyboardButton("🤖 IA e Apps", callback_data="cat_apps")],
-        [InlineKeyboardButton("⬅️ Voltar", callback_data="inicio")]
-    ]
+    cursor.execute("""
+        SELECT id, nome, descricao, preco, estoque
+        FROM produtos
+        WHERE estoque > 0
+        ORDER BY id
+    """)
 
-    return InlineKeyboardMarkup(teclado)
+    produtos = cursor.fetchall()
+
+    conn.close()
+
+    return produtos
+
+
+def menu_catalogo():
+    produtos = listar_produtos()
+
+    botoes = []
+
+    if not produtos:
+        botoes.append([
+            InlineKeyboardButton(
+                "📦 Estoque vazio",
+                callback_data="sem_estoque"
+            )
+        ])
+    else:
+        for produto in produtos:
+            produto_id = produto[0]
+            nome = produto[1]
+            preco = produto[3]
+
+            botoes.append([
+                InlineKeyboardButton(
+                    f"🛒 {nome} - R$ {preco:.2f}",
+                    callback_data=f"produto_{produto_id}"
+                )
+            ])
+
+    botoes.append([
+        InlineKeyboardButton(
+            "⬅️ Voltar",
+            callback_data="voltar_menu"
+        )
+    ])
+
+    return InlineKeyboardMarkup(botoes)
+
+
+def buscar_produto(produto_id):
+    conn = conectar()
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        SELECT id, nome, descricao, preco, estoque
+        FROM produtos
+        WHERE id = ?
+    """, (produto_id,))
+
+    produto = cursor.fetchone()
+
+    conn.close()
+
+    return produto
