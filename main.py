@@ -281,12 +281,25 @@ async def botoes(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
     elif acao == "grupo":
-        await query.edit_message_text(
-            "👥 *GRUPO DE CLIENTES*\n\n"
-            "O link do grupo será configurado depois.",
-            reply_markup=menu_principal(),
-            parse_mode="Markdown"
-        )
+    await query.edit_message_text(
+        "👥 *GRUPO DE CLIENTES*\n\n"
+        "Entre no nosso grupo de clientes pelo botão abaixo.",
+        reply_markup=InlineKeyboardMarkup([
+            [
+                InlineKeyboardButton(
+                    "👥 ENTRAR NO GRUPO",
+                    url="https://t.me/PLAYERSTORYREFERENCIA"
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    "⬅️ Voltar",
+                    callback_data="voltar_menu"
+                )
+            ]
+        ]),
+        parse_mode="Markdown"
+    )
 
     elif acao == "alugar":
         await query.edit_message_text(
