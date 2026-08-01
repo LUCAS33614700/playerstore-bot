@@ -1,127 +1,234 @@
 from telegram import Update
-from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes
-from config import TOKEN, NOME_LOJA
+from telegram.ext import (
+    Application,
+    CommandHandler,
+    CallbackQueryHandler,
+    ContextTypes,
+)
+
+from config import BOT_TOKEN, verificar_configuracao
+from database import criar_tabelas, criar_usuario, consultar_saldo
 from menu import menu_principal
-from catalogo import CATALOGO, teclado_catalogo
+from catalogo import menu_catalogo, buscar_produto
 
-WELCOME=f"""🏪 *{NOME_LOJA}*
-
-🏆 Sua loja de Streaming, Games e Apps Premium.
-
-Escolha uma opção abaixo.
-"""
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(WELCOME, parse_mode="Markdown", reply_markup=menu_principal())
+    usuario = update.effective_user
 
-async def buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query=update.callback_query
+    criar_usuario(
+        usuario.id,
+        usuario.first_name or "",
+        usuario.username or ""
+    )
+
+    texto = (
+        f"👋 Olá, {usuario.first_name}!\n\n"
+        "🛒 Bem-vindo à PLAYER STORE!\n\n"
+        "Escolha uma opção abaixo:"
+    )
+
+    await update.message.reply_text(
+        texto,
+        reply_markup=menu_principal()
+    )
+
+
+async def botoes(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
     await query.answer()
-    if query.data=="catalogo":
-        await query.edit_message_text(CATALOGO, parse_mode="Markdown", reply_markup=teclado_catalogo())
-    elif query.data=="inicio":
-        await query.edit_message_text(WELCOME, parse_mode="Markdown", reply_markup=menu_principal())
-    elif query.data=="carrinho":
-        await query.edit_message_text("🛒 *Carrinho*\n\nSeu carrinho está vazio.", parse_mode="Markdown", reply_markup=menu_principal())
-    elif query.data=="perfil":
-        u=query.from_user
-        await query.edit_message_text(f"👤 *Meu Perfil*\n\n🆔 `{u.id}`\n👤 {u.first_name}\n💰 Saldo: R$ 0,00\n📦 Pedidos: 0", parse_mode="Markdown", reply_markup=menu_principal())
-    elif query.data=="saldo":
-        await query.edit_message_text("💰 Pix: moraes3361@gmail.com", parse_mode="Markdown", reply_markup=menu_principal())
-    elif query.data=="pedidos":
-        await query.edit_message_text("📦 Nenhum pedido.", parse_mode="Markdown", reply_markup=menu_principal())
-    elif query.data=="renovar":
-        await query.edit_message_text("🔄 Renovação.", parse_mode="Markdown", reply_markup=menu_principal())
-    elif query.data=="pagamento":
-        await query.edit_message_text("💳 Pix: moraes3361@gmail.com", parse_mode="Markdown", reply_markup=menu_principal())
-    elif query.data=="promocoes":
-            elif query.data == "cat_streaming":
 
-        texto = """
-📺 *STREAMING*
+    usuario_id = query.from_user.id
+    acao = query.data
 
-• Netflix
-• Prime Video
-• Disney+
-• Max
-• Apple TV+
-• Globoplay
-• Paramount+
-• Crunchyroll
-• Discovery+
-"""
-
+    if acao == "catalogo":
         await query.edit_message_text(
-            texto,
-            parse_mode="Markdown",
-            reply_markup=teclado_catalogo()
+            "🛒 *LOGINS | CONTAS PREMIUM*\n\n"
+            "Escolha um produto:",
+            reply_markup=menu_catalogo(),
+            parse_mode="Markdown"
         )
 
-    elif query.data == "cat_musica":
-
-        texto = """
-🎵 *MÚSICA*
-
-• Spotify Premium
-• Deezer Premium
-• YouTube Premium
-• Tidal HiFi
-"""
+    elif acao == "saldo":
+        saldo = consultar_saldo(usuario_id)
 
         await query.edit_message_text(
-            texto,
-            parse_mode="Markdown",
-            reply_markup=teclado_catalogo()
+            f"💵 *Seu saldo*\n\n"
+            f"Saldo atual: R$ {saldo:.2f}\n\n"
+            "Em breve vamos adicionar o sistema de pagamento.",
+            reply_markup=menu_principal(),
+            parse_mode="Markdown"
         )
 
-    elif query.data == "cat_games":
-
-        texto = """
-🎮 *GAMES*
-
-• Xbox Game Pass
-• PlayStation Plus
-• EA Play
-• Ubisoft+
-"""
+    elif acao == "perfil":
+        saldo = consultar_saldo(usuario_id)
 
         await query.edit_message_text(
-            texto,
-            parse_mode="Markdown",
-            reply_markup=teclado_catalogo()
+            f"👤 *SEU PERFIL*\n\n"
+            f"🆔 ID: `{usuario_id}`\n"
+            f"💰 Saldo: R$ {saldo:.2f}",
+            reply_markup=menu_principal(),
+            parse_mode="Markdown"
         )
 
-    elif query.data == "cat_apps":
+    elif acao == "voltar_menu":
+        await query.edit_message_text(
+            "🏠 *MENU PRINCIPAL*\n\n"
+            "Escolha uma opção:",
+            reply_markup=menu_principal(),
+            parse_mode="Markdown"
+        )
 
-        texto = """
-🤖 *IA E APPS*
+    elif acao.startswith("produto_"):
+        produto_id = int(acao.split("_")[1])
+        produto = buscar_produto(produto_id)
 
-• ChatGPT Plus
-• Canva Pro
-• Microsoft 365
-• Google One
-• Dropbox Plus
-"""
+        if not produto:
+            await query.answer(
+                "❌ Produto não encontrado.",
+                show_alert=True
+            )
+            return
+
+        _, nome, descricao, preco, estoque = produto
+
+        texto = (
+            f"🛒 *{nome}*\n\n"
+            f"📝 {descricao or 'Sem descrição'}\n\n"
+            f"💰 Preço: R$ {preco:.2f}\n"
+            f"📦 Estoque: {estoque}"
+        )
+
+        botoes = [
+            [
+                InlineKeyboardButton(
+                    "🛒 Comprar",
+                    callback_data=f"comprar_{produto_id}"
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    "⬅️ Voltar",
+                    callback_data="catalogo"
+                )
+            ]
+        ]
+
+        from telegram import InlineKeyboardMarkup
 
         await query.edit_message_text(
             texto,
-            parse_mode="Markdown",
-            reply_markup=teclado_catalogo()
-)
-        await query.edit_message_text("🎁 Promoções.", parse_mode="Markdown", reply_markup=menu_principal())
-    elif query.data=="suporte":
-        await query.edit_message_text("🛠️ WhatsApp: https://wa.me/559293592126", parse_mode="Markdown", disable_web_page_preview=True, reply_markup=menu_principal())
-    elif query.data=="grupo":
-        await query.edit_message_text("👥 Grupo VIP em breve.", parse_mode="Markdown", reply_markup=menu_principal())
-    elif query.data=="faq":
-        await query.edit_message_text("❓ FAQ.", parse_mode="Markdown", reply_markup=menu_principal())
+            reply_markup=InlineKeyboardMarkup(botoes),
+            parse_mode="Markdown"
+        )
+
+    elif acao == "carrinho":
+        await query.edit_message_text(
+            "🛍️ *CARRINHO*\n\n"
+            "Seu carrinho está vazio.",
+            reply_markup=menu_principal(),
+            parse_mode="Markdown"
+        )
+
+    elif acao == "pesquisar":
+        await query.edit_message_text(
+            "🔎 *PESQUISAR SERVIÇO*\n\n"
+            "Sistema de pesquisa em desenvolvimento.",
+            reply_markup=menu_principal(),
+            parse_mode="Markdown"
+        )
+
+    elif acao == "estoque":
+        await query.edit_message_text(
+            "📦 *ESTOQUE DE LOGINS*\n\n"
+            "Consulte os produtos disponíveis através do catálogo.",
+            reply_markup=menu_principal(),
+            parse_mode="Markdown"
+        )
+
+    elif acao == "mac":
+        await query.edit_message_text(
+            "🎮 *ATIVAÇÃO DE MAC*\n\n"
+            "Sistema de ativação em desenvolvimento.",
+            reply_markup=menu_principal(),
+            parse_mode="Markdown"
+        )
+
+    elif acao == "jogos":
+        await query.edit_message_text(
+            "⚽ *JOGOS NA TV*\n\n"
+            "Informações sobre jogos serão adicionadas aqui.",
+            reply_markup=menu_principal(),
+            parse_mode="Markdown"
+        )
+
+    elif acao == "renovar":
+        await query.edit_message_text(
+            "♻️ *RENOVAR CONTA*\n\n"
+            "Sistema de renovação em desenvolvimento.",
+            reply_markup=menu_principal(),
+            parse_mode="Markdown"
+        )
+
+    elif acao == "suporte":
+        await query.edit_message_text(
+            "🆘 *SUPORTE*\n\n"
+            "Entre em contato com o suporte.",
+            reply_markup=menu_principal(),
+            parse_mode="Markdown"
+        )
+
+    elif acao == "termos":
+        await query.edit_message_text(
+            "📜 *TERMOS DE USO*\n\n"
+            "Os termos de uso serão adicionados aqui.",
+            reply_markup=menu_principal(),
+            parse_mode="Markdown"
+        )
+
+    elif acao == "outros_bots":
+        await query.edit_message_text(
+            "🤖 *OUTROS BOTS*\n\n"
+            "Em breve.",
+            reply_markup=menu_principal(),
+            parse_mode="Markdown"
+        )
+
+    elif acao == "grupo":
+        await query.edit_message_text(
+            "👥 *GRUPO DE CLIENTES*\n\n"
+            "O link do grupo será configurado depois.",
+            reply_markup=menu_principal(),
+            parse_mode="Markdown"
+        )
+
+    elif acao == "alugar":
+        await query.edit_message_text(
+            "📣 *ALUGAR ESTE BOT*\n\n"
+            "Em breve você poderá solicitar seu próprio bot.",
+            reply_markup=menu_principal(),
+            parse_mode="Markdown"
+        )
+
+    elif acao == "sem_estoque":
+        await query.answer(
+            "📦 O estoque está vazio.",
+            show_alert=True
+        )
+
 
 def main():
-    app=Application.builder().token(TOKEN).build()
+    verificar_configuracao()
+    criar_tabelas()
+
+    app = Application.builder().token(BOT_TOKEN).build()
+
     app.add_handler(CommandHandler("start", start))
-    app.add_handler(CallbackQueryHandler(buttons))
+    app.add_handler(CallbackQueryHandler(botoes))
+
+    print("🤖 Bot iniciado!")
+
     app.run_polling()
 
-if __name__=="__main__":
+
+if __name__ == "__main__":
     main()
-        
