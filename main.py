@@ -1,4 +1,4 @@
-from telegram import Update
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
     Application,
     CommandHandler,
@@ -7,7 +7,14 @@ from telegram.ext import (
 )
 
 from config import BOT_TOKEN, verificar_configuracao
-from database import criar_tabelas, criar_usuario, consultar_saldo
+from database import (
+    criar_tabelas,
+    criar_usuario,
+    consultar_saldo,
+    conectar,
+    adicionar_saldo,
+    retirar_saldo,
+)
 from menu import menu_principal
 from catalogo import menu_catalogo, buscar_produto
 
@@ -33,6 +40,79 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 
+async def comprar_produto(query, produto_id, usuario_id):
+    produto = buscar_produto(produto_id)
+
+    if not produto:
+        await query.answer(
+            "❌ Produto não encontrado.",
+            show_alert=True
+        )
+        return
+
+    _, nome, descricao, preco, estoque = produto
+
+    if estoque <= 0:
+        await query.answer(
+            "📦 Produto sem estoque.",
+            show_alert=True
+        )
+        return
+
+    saldo = consultar_saldo(usuario_id)
+
+    if saldo < preco:
+        await query.answer(
+            f"❌ Saldo insuficiente.\n"
+            f"Seu saldo: R$ {saldo:.2f}\n"
+            f"Preço: R$ {preco:.2f}",
+            show_alert=True
+        )
+        return
+
+    # Retira o saldo
+    sucesso = retirar_saldo(usuario_id, preco)
+
+    if not sucesso:
+        await query.answer(
+            "❌ Não foi possível realizar a compra.",
+            show_alert=True
+        )
+        return
+
+    # Atualiza estoque e registra pedido
+    conn = conectar()
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        UPDATE produtos
+        SET estoque = estoque - 1
+        WHERE id = ?
+        AND estoque > 0
+    """, (produto_id,))
+
+    cursor.execute("""
+        INSERT INTO pedidos
+        (usuario_id, produto_id, quantidade, valor, status)
+        VALUES (?, ?, 1, ?, 'pago')
+    """, (usuario_id, produto_id, preco))
+
+    conn.commit()
+    conn.close()
+
+    novo_saldo = consultar_saldo(usuario_id)
+
+    await query.edit_message_text(
+        f"✅ *Compra realizada!*\n\n"
+        f"🛒 Produto: {nome}\n"
+        f"💰 Valor: R$ {preco:.2f}\n"
+        f"💳 Saldo restante: R$ {novo_saldo:.2f}\n\n"
+        "📦 Seu pedido foi registrado.",
+        reply_markup=menu_principal(),
+        parse_mode="Markdown"
+    )
+
+
 async def botoes(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -45,36 +125,6 @@ async def botoes(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "🛒 *LOGINS | CONTAS PREMIUM*\n\n"
             "Escolha um produto:",
             reply_markup=menu_catalogo(),
-            parse_mode="Markdown"
-        )
-
-    elif acao == "saldo":
-        saldo = consultar_saldo(usuario_id)
-
-        await query.edit_message_text(
-            f"💵 *Seu saldo*\n\n"
-            f"Saldo atual: R$ {saldo:.2f}\n\n"
-            "Em breve vamos adicionar o sistema de pagamento.",
-            reply_markup=menu_principal(),
-            parse_mode="Markdown"
-        )
-
-    elif acao == "perfil":
-        saldo = consultar_saldo(usuario_id)
-
-        await query.edit_message_text(
-            f"👤 *SEU PERFIL*\n\n"
-            f"🆔 ID: `{usuario_id}`\n"
-            f"💰 Saldo: R$ {saldo:.2f}",
-            reply_markup=menu_principal(),
-            parse_mode="Markdown"
-        )
-
-    elif acao == "voltar_menu":
-        await query.edit_message_text(
-            "🏠 *MENU PRINCIPAL*\n\n"
-            "Escolha uma opção:",
-            reply_markup=menu_principal(),
             parse_mode="Markdown"
         )
 
@@ -113,11 +163,48 @@ async def botoes(update: Update, context: ContextTypes.DEFAULT_TYPE):
             ]
         ]
 
-        from telegram import InlineKeyboardMarkup
-
         await query.edit_message_text(
             texto,
             reply_markup=InlineKeyboardMarkup(botoes),
+            parse_mode="Markdown"
+        )
+
+    elif acao.startswith("comprar_"):
+        produto_id = int(acao.split("_")[1])
+
+        await comprar_produto(
+            query,
+            produto_id,
+            usuario_id
+        )
+
+    elif acao == "saldo":
+        saldo = consultar_saldo(usuario_id)
+
+        await query.edit_message_text(
+            f"💵 *SEU SALDO*\n\n"
+            f"💰 Saldo atual: R$ {saldo:.2f}\n\n"
+            "O sistema de pagamento será adicionado depois.",
+            reply_markup=menu_principal(),
+            parse_mode="Markdown"
+        )
+
+    elif acao == "perfil":
+        saldo = consultar_saldo(usuario_id)
+
+        await query.edit_message_text(
+            f"👤 *SEU PERFIL*\n\n"
+            f"🆔 ID: `{usuario_id}`\n"
+            f"💰 Saldo: R$ {saldo:.2f}",
+            reply_markup=menu_principal(),
+            parse_mode="Markdown"
+        )
+
+    elif acao == "voltar_menu":
+        await query.edit_message_text(
+            "🏠 *MENU PRINCIPAL*\n\n"
+            "Escolha uma opção:",
+            reply_markup=menu_principal(),
             parse_mode="Markdown"
         )
 
@@ -140,7 +227,7 @@ async def botoes(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif acao == "estoque":
         await query.edit_message_text(
             "📦 *ESTOQUE DE LOGINS*\n\n"
-            "Consulte os produtos disponíveis através do catálogo.",
+            "Consulte os produtos disponíveis no catálogo.",
             reply_markup=menu_principal(),
             parse_mode="Markdown"
         )
