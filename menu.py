@@ -2,38 +2,48 @@ from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 
 
 def menu_principal():
-
-    keyboard = [
-
+    teclado = [
         [
-            InlineKeyboardButton("🛍️ Catálogo", callback_data="catalogo"),
-            InlineKeyboardButton("🛒 Carrinho", callback_data="carrinho")
+            InlineKeyboardButton(
+                "🛒 LOGINS | CONTAS PREMIUM",
+                callback_data="catalogo"
+            )
         ],
-
         [
-            InlineKeyboardButton("👤 Perfil", callback_data="perfil"),
-            InlineKeyboardButton("💰 Saldo", callback_data="saldo")
+            InlineKeyboardButton("🛍️ CARRINHO", callback_data="carrinho"),
+            InlineKeyboardButton("💵 ADICIONAR SALDO", callback_data="saldo")
         ],
-
         [
-            InlineKeyboardButton("📦 Pedidos", callback_data="pedidos"),
-            InlineKeyboardButton("🔄 Renovar", callback_data="renovar")
+            InlineKeyboardButton("🔎 PESQUISAR SERVIÇO", callback_data="pesquisar"),
+            InlineKeyboardButton("📦 ESTOQUE DE LOGINS", callback_data="estoque")
         ],
-
         [
-            InlineKeyboardButton("💳 Pagamento", callback_data="pagamento"),
-            InlineKeyboardButton("🎁 Promoções", callback_data="promocoes")
+            InlineKeyboardButton("🎮 ATIVAÇÃO DE MAC", callback_data="mac"),
+            InlineKeyboardButton("⚽ JOGOS NA TV", callback_data="jogos")
         ],
-
         [
-            InlineKeyboardButton("🛠️ Suporte", callback_data="suporte"),
-            InlineKeyboardButton("👥 Grupo VIP", callback_data="grupo")
+            InlineKeyboardButton("♻️ RENOVAR CONTA", callback_data="renovar")
         ],
-
         [
-            InlineKeyboardButton("❓ FAQ", callback_data="faq")
+            InlineKeyboardButton("🆘 SUPORTE", callback_data="suporte"),
+            InlineKeyboardButton("👤 PERFIL", callback_data="perfil")
+        ],
+        [
+            InlineKeyboardButton("📜 TERMOS DE USO", callback_data="termos"),
+            InlineKeyboardButton("🤖 OUTROS BOTS", callback_data="outros_bots")
+        ],
+        [
+            InlineKeyboardButton(
+                "👥 GRUPO DE CLIENTES",
+                callback_data="grupo"
+            )
+        ],
+        [
+            InlineKeyboardButton(
+                "📣 ALUGAR ESTE BOT",
+                callback_data="alugar"
+            )
         ]
-
     ]
 
-    return InlineKeyboardMarkup(keyboard)
+    return InlineKeyboardMarkup(teclado)
