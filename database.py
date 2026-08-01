@@ -115,3 +115,68 @@ def retirar_saldo(user_id, valor):
     conn.close()
 
     return alterado
+def adicionar_produto(nome, descricao, preco, estoque):
+    conn = conectar()
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        INSERT INTO produtos (nome, descricao, preco, estoque)
+        VALUES (?, ?, ?, ?)
+    """, (nome, descricao, preco, estoque))
+
+    conn.commit()
+    produto_id = cursor.lastrowid
+    conn.close()
+
+    return produto_id
+
+
+def listar_todos_produtos():
+    conn = conectar()
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        SELECT id, nome, descricao, preco, estoque
+        FROM produtos
+        ORDER BY id
+    """)
+
+    produtos = cursor.fetchall()
+    conn.close()
+
+    return produtos
+
+
+def excluir_produto(produto_id):
+    conn = conectar()
+    cursor = conn.cursor()
+
+    cursor.execute(
+        "DELETE FROM produtos WHERE id = ?",
+        (produto_id,)
+    )
+
+    excluido = cursor.rowcount > 0
+
+    conn.commit()
+    conn.close()
+
+    return excluido
+
+
+def atualizar_estoque(produto_id, estoque):
+    conn = conectar()
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        UPDATE produtos
+        SET estoque = ?
+        WHERE id = ?
+    """, (estoque, produto_id))
+
+    alterado = cursor.rowcount > 0
+
+    conn.commit()
+    conn.close()
+
+    return alterado
