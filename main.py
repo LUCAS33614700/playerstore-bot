@@ -12,11 +12,13 @@ from database import (
     criar_usuario,
     consultar_saldo,
     conectar,
-    adicionar_saldo,
     retirar_saldo,
 )
 from menu import menu_principal
 from catalogo import menu_catalogo, buscar_produto
+
+
+GRUPO_CLIENTES = "https://t.me/PLAYERSTORYREFERENCIA"
 
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -70,7 +72,6 @@ async def comprar_produto(query, produto_id, usuario_id):
         )
         return
 
-    # Retira o saldo
     sucesso = retirar_saldo(usuario_id, preco)
 
     if not sucesso:
@@ -80,22 +81,27 @@ async def comprar_produto(query, produto_id, usuario_id):
         )
         return
 
-    # Atualiza estoque e registra pedido
     conn = conectar()
     cursor = conn.cursor()
 
-    cursor.execute("""
+    cursor.execute(
+        """
         UPDATE produtos
         SET estoque = estoque - 1
         WHERE id = ?
         AND estoque > 0
-    """, (produto_id,))
+        """,
+        (produto_id,)
+    )
 
-    cursor.execute("""
+    cursor.execute(
+        """
         INSERT INTO pedidos
         (usuario_id, produto_id, quantidade, valor, status)
         VALUES (?, ?, 1, ?, 'pago')
-    """, (usuario_id, produto_id, preco))
+        """,
+        (usuario_id, produto_id, preco)
+    )
 
     conn.commit()
     conn.close()
@@ -148,7 +154,7 @@ async def botoes(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"📦 Estoque: {estoque}"
         )
 
-        botoes = [
+        botoes_compra = [
             [
                 InlineKeyboardButton(
                     "🛒 Comprar",
@@ -165,7 +171,7 @@ async def botoes(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         await query.edit_message_text(
             texto,
-            reply_markup=InlineKeyboardMarkup(botoes),
+            reply_markup=InlineKeyboardMarkup(botoes_compra),
             parse_mode="Markdown"
         )
 
@@ -281,25 +287,25 @@ async def botoes(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
     elif acao == "grupo":
-    await query.edit_message_text(
-        "👥 *GRUPO DE CLIENTES*\n\n"
-        "Entre no nosso grupo de clientes pelo botão abaixo.",
-        reply_markup=InlineKeyboardMarkup([
-            [
-                InlineKeyboardButton(
-                    "👥 ENTRAR NO GRUPO",
-                    url="https://t.me/PLAYERSTORYREFERENCIA"
-                )
-            ],
-            [
-                InlineKeyboardButton(
-                    "⬅️ Voltar",
-                    callback_data="voltar_menu"
-                )
-            ]
-        ]),
-        parse_mode="Markdown"
-    )
+        await query.edit_message_text(
+            "👥 *GRUPO DE CLIENTES*\n\n"
+            "Entre no nosso grupo de clientes pelo botão abaixo.",
+            reply_markup=InlineKeyboardMarkup([
+                [
+                    InlineKeyboardButton(
+                        "👥 ENTRAR NO GRUPO",
+                        url=GRUPO_CLIENTES
+                    )
+                ],
+                [
+                    InlineKeyboardButton(
+                        "⬅️ Voltar",
+                        callback_data="voltar_menu"
+                    )
+                ]
+            ]),
+            parse_mode="Markdown"
+        )
 
     elif acao == "alugar":
         await query.edit_message_text(
