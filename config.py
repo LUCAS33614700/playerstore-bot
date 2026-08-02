@@ -25,24 +25,23 @@ NOME_DA_LOJA = "PLAYER STORE"
 
 
 # =========================
-# PIX
+# PUSHINPAY
 # =========================
 
-PIX_KEY = os.getenv("PIX_KEY", "")
-
-
-# =========================
-# ASAAS
-# =========================
-
-ASAAS_API_KEY = os.getenv("ASAAS_API_KEY", "")
+PUSHINPAY_TOKEN = os.getenv(
+    "PUSHINPAY_TOKEN",
+    ""
+)
 
 
 # =========================
 # SUPORTE
 # =========================
 
-SUPORTE_USERNAME = os.getenv("SUPORTE_USERNAME", "")
+SUPORTE_USERNAME = os.getenv(
+    "SUPORTE_USERNAME",
+    ""
+)
 
 
 # =========================
@@ -71,9 +70,9 @@ def verificar_configuracao():
             "ADMIN_ID não configurado"
         )
 
-    if not ASAAS_API_KEY:
+    if not PUSHINPAY_TOKEN:
         raise ValueError(
-            "ASAAS_API_KEY não configurado"
+            "PUSHINPAY_TOKEN não configurado"
         )
 
     return True
