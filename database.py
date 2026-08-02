@@ -3,6 +3,10 @@ import sqlite3
 from config import DATABASE_NAME
 
 
+# =========================================================
+# CONEXÃO
+# =========================================================
+
 def conectar():
     return sqlite3.connect(DATABASE_NAME)
 
@@ -12,8 +16,13 @@ def conectar():
 # =========================================================
 
 def criar_tabelas():
+
     conn = conectar()
     cursor = conn.cursor()
+
+    # -----------------------------------------------------
+    # USUÁRIOS
+    # -----------------------------------------------------
 
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS usuarios (
@@ -24,6 +33,10 @@ def criar_tabelas():
         )
     """)
 
+    # -----------------------------------------------------
+    # PRODUTOS
+    # -----------------------------------------------------
+
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS produtos (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -33,6 +46,10 @@ def criar_tabelas():
             estoque INTEGER DEFAULT 0
         )
     """)
+
+    # -----------------------------------------------------
+    # PEDIDOS
+    # -----------------------------------------------------
 
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS pedidos (
@@ -45,16 +62,19 @@ def criar_tabelas():
         )
     """)
 
-    # =====================================================
-    # PAGAMENTOS ASAAS
-    # =====================================================
+    # -----------------------------------------------------
+    # PAGAMENTOS PIX
+    #
+    # O campo pushinpay_id guarda o ID retornado
+    # pela PushinPay.
+    # -----------------------------------------------------
 
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS pagamentos (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             usuario_id INTEGER NOT NULL,
             valor REAL NOT NULL,
-            asaas_id TEXT,
+            pushinpay_id TEXT UNIQUE,
             status TEXT DEFAULT 'pendente',
             criado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
@@ -68,26 +88,59 @@ def criar_tabelas():
 # USUÁRIOS
 # =========================================================
 
-def criar_usuario(user_id, nome, username):
+def criar_usuario(
+    user_id,
+    nome,
+    username
+):
+
     conn = conectar()
     cursor = conn.cursor()
 
     cursor.execute("""
         INSERT OR IGNORE INTO usuarios
-        (id, nome, username, saldo)
+        (
+            id,
+            nome,
+            username,
+            saldo
+        )
         VALUES (?, ?, ?, 0)
-    """, (user_id, nome, username))
+    """, (
+        user_id,
+        nome,
+        username
+    ))
+
+    # Atualiza nome e username caso o usuário
+    # já exista.
+
+    cursor.execute("""
+        UPDATE usuarios
+        SET nome = ?,
+            username = ?
+        WHERE id = ?
+    """, (
+        nome,
+        username,
+        user_id
+    ))
 
     conn.commit()
     conn.close()
 
 
 def consultar_usuario(user_id):
+
     conn = conectar()
     cursor = conn.cursor()
 
     cursor.execute(
-        "SELECT * FROM usuarios WHERE id = ?",
+        """
+        SELECT *
+        FROM usuarios
+        WHERE id = ?
+        """,
         (user_id,)
     )
 
@@ -99,10 +152,11 @@ def consultar_usuario(user_id):
 
 
 def consultar_saldo(user_id):
+
     usuario = consultar_usuario(user_id)
 
     if usuario:
-        return usuario[3]
+        return float(usuario[3])
 
     return 0.0
 
@@ -111,7 +165,11 @@ def consultar_saldo(user_id):
 # SALDO
 # =========================================================
 
-def adicionar_saldo(user_id, valor):
+def adicionar_saldo(
+    user_id,
+    valor
+):
+
     conn = conectar()
     cursor = conn.cursor()
 
@@ -119,7 +177,10 @@ def adicionar_saldo(user_id, valor):
         UPDATE usuarios
         SET saldo = saldo + ?
         WHERE id = ?
-    """, (valor, user_id))
+    """, (
+        valor,
+        user_id
+    ))
 
     alterado = cursor.rowcount > 0
 
@@ -129,7 +190,11 @@ def adicionar_saldo(user_id, valor):
     return alterado
 
 
-def retirar_saldo(user_id, valor):
+def retirar_saldo(
+    user_id,
+    valor
+):
+
     conn = conectar()
     cursor = conn.cursor()
 
@@ -138,7 +203,11 @@ def retirar_saldo(user_id, valor):
         SET saldo = saldo - ?
         WHERE id = ?
         AND saldo >= ?
-    """, (valor, user_id, valor))
+    """, (
+        valor,
+        user_id,
+        valor
+    ))
 
     alterado = cursor.rowcount > 0
 
@@ -152,15 +221,31 @@ def retirar_saldo(user_id, valor):
 # PRODUTOS
 # =========================================================
 
-def adicionar_produto(nome, descricao, preco, estoque):
+def adicionar_produto(
+    nome,
+    descricao,
+    preco,
+    estoque
+):
+
     conn = conectar()
     cursor = conn.cursor()
 
     cursor.execute("""
         INSERT INTO produtos
-        (nome, descricao, preco, estoque)
+        (
+            nome,
+            descricao,
+            preco,
+            estoque
+        )
         VALUES (?, ?, ?, ?)
-    """, (nome, descricao, preco, estoque))
+    """, (
+        nome,
+        descricao,
+        preco,
+        estoque
+    ))
 
     conn.commit()
 
@@ -172,11 +257,17 @@ def adicionar_produto(nome, descricao, preco, estoque):
 
 
 def listar_todos_produtos():
+
     conn = conectar()
     cursor = conn.cursor()
 
     cursor.execute("""
-        SELECT id, nome, descricao, preco, estoque
+        SELECT
+            id,
+            nome,
+            descricao,
+            preco,
+            estoque
         FROM produtos
         ORDER BY id
     """)
@@ -188,12 +279,18 @@ def listar_todos_produtos():
     return produtos
 
 
-def excluir_produto(produto_id):
+def excluir_produto(
+    produto_id
+):
+
     conn = conectar()
     cursor = conn.cursor()
 
     cursor.execute(
-        "DELETE FROM produtos WHERE id = ?",
+        """
+        DELETE FROM produtos
+        WHERE id = ?
+        """,
         (produto_id,)
     )
 
@@ -205,7 +302,11 @@ def excluir_produto(produto_id):
     return excluido
 
 
-def atualizar_estoque(produto_id, estoque):
+def atualizar_estoque(
+    produto_id,
+    estoque
+):
+
     conn = conectar()
     cursor = conn.cursor()
 
@@ -213,7 +314,10 @@ def atualizar_estoque(produto_id, estoque):
         UPDATE produtos
         SET estoque = ?
         WHERE id = ?
-    """, (estoque, produto_id))
+    """, (
+        estoque,
+        produto_id
+    ))
 
     alterado = cursor.rowcount > 0
 
@@ -224,14 +328,15 @@ def atualizar_estoque(produto_id, estoque):
 
 
 # =========================================================
-# PAGAMENTOS ASAAS
+# PAGAMENTOS PUSHINPAY
 # =========================================================
 
 def criar_pagamento(
     usuario_id,
     valor,
-    asaas_id
+    pushinpay_id
 ):
+
     conn = conectar()
     cursor = conn.cursor()
 
@@ -240,14 +345,14 @@ def criar_pagamento(
         (
             usuario_id,
             valor,
-            asaas_id,
+            pushinpay_id,
             status
         )
         VALUES (?, ?, ?, 'pendente')
     """, (
         usuario_id,
         valor,
-        asaas_id
+        pushinpay_id
     ))
 
     conn.commit()
@@ -259,7 +364,10 @@ def criar_pagamento(
     return pagamento_id
 
 
-def consultar_pagamento(asaas_id):
+def consultar_pagamento(
+    pushinpay_id
+):
+
     conn = conectar()
     cursor = conn.cursor()
 
@@ -268,12 +376,14 @@ def consultar_pagamento(asaas_id):
             id,
             usuario_id,
             valor,
-            asaas_id,
+            pushinpay_id,
             status,
             criado_em
         FROM pagamentos
-        WHERE asaas_id = ?
-    """, (asaas_id,))
+        WHERE pushinpay_id = ?
+    """, (
+        pushinpay_id,
+    ))
 
     pagamento = cursor.fetchone()
 
@@ -283,19 +393,20 @@ def consultar_pagamento(asaas_id):
 
 
 def atualizar_status_pagamento(
-    asaas_id,
+    pushinpay_id,
     status
 ):
+
     conn = conectar()
     cursor = conn.cursor()
 
     cursor.execute("""
         UPDATE pagamentos
         SET status = ?
-        WHERE asaas_id = ?
+        WHERE pushinpay_id = ?
     """, (
         status,
-        asaas_id
+        pushinpay_id
     ))
 
     alterado = cursor.rowcount > 0
@@ -306,7 +417,10 @@ def atualizar_status_pagamento(
     return alterado
 
 
-def listar_pagamentos_usuario(user_id):
+def listar_pagamentos_usuario(
+    user_id
+):
+
     conn = conectar()
     cursor = conn.cursor()
 
@@ -314,13 +428,15 @@ def listar_pagamentos_usuario(user_id):
         SELECT
             id,
             valor,
-            asaas_id,
+            pushinpay_id,
             status,
             criado_em
         FROM pagamentos
         WHERE usuario_id = ?
         ORDER BY id DESC
-    """, (user_id,))
+    """, (
+        user_id,
+    ))
 
     pagamentos = cursor.fetchall()
 
