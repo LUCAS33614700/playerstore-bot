@@ -6,9 +6,14 @@ import requests
 # CONFIGURAÇÃO
 # =========================================================
 
-PUSHINPAY_TOKEN = os.getenv("PUSHINPAY_TOKEN", "")
+PUSHINPAY_TOKEN = os.getenv(
+    "PUSHINPAY_TOKEN",
+    "",
+)
 
-BASE_URL = "https://api.pushinpay.com.br/api"
+BASE_URL = (
+    "https://api.pushinpay.com.br/api"
+)
 
 
 # =========================================================
@@ -18,12 +23,15 @@ BASE_URL = "https://api.pushinpay.com.br/api"
 def headers():
 
     if not PUSHINPAY_TOKEN:
+
         raise ValueError(
             "PUSHINPAY_TOKEN não configurado."
         )
 
     return {
-        "Authorization": f"Bearer {PUSHINPAY_TOKEN}",
+        "Authorization": (
+            f"Bearer {PUSHINPAY_TOKEN}"
+        ),
         "Accept": "application/json",
         "Content-Type": "application/json",
     }
@@ -38,12 +46,14 @@ def criar_pix(
     webhook_url=None,
 ):
 
-    # PushinPay trabalha com centavos
     valor_centavos = int(
-        round(float(valor) * 100)
+        round(
+            float(valor) * 100
+        )
     )
 
     if valor_centavos <= 0:
+
         raise ValueError(
             "Valor do PIX inválido."
         )
@@ -54,7 +64,10 @@ def criar_pix(
     }
 
     if webhook_url:
-        dados["webhook_url"] = webhook_url
+
+        dados["webhook_url"] = (
+            webhook_url
+        )
 
     resposta = requests.post(
         f"{BASE_URL}/pix/cashIn",
@@ -71,7 +84,20 @@ def criar_pix(
 
     resposta.raise_for_status()
 
-    return resposta.json()
+    dados_resposta = (
+        resposta.json()
+    )
+
+    if not isinstance(
+        dados_resposta,
+        dict,
+    ):
+
+        raise ValueError(
+            "Resposta inválida da PushinPay."
+        )
+
+    return dados_resposta
 
 
 # =========================================================
@@ -83,12 +109,14 @@ def consultar_pix(
 ):
 
     if not transacao_id:
+
         raise ValueError(
             "ID da transação não informado."
         )
 
     resposta = requests.get(
-        f"{BASE_URL}/transactions/{transacao_id}",
+        f"{BASE_URL}/transactions/"
+        f"{transacao_id}",
         headers=headers(),
         timeout=30,
     )
@@ -101,11 +129,22 @@ def consultar_pix(
 
     resposta.raise_for_status()
 
-    return resposta.json()
+    dados = resposta.json()
+
+    if not isinstance(
+        dados,
+        dict,
+    ):
+
+        raise ValueError(
+            "Resposta inválida da PushinPay."
+        )
+
+    return dados
 
 
 # =========================================================
-# PEGAR STATUS
+# STATUS
 # =========================================================
 
 def status_pix(
@@ -116,22 +155,25 @@ def status_pix(
         transacao_id
     )
 
-    return dados.get(
-        "status",
-        ""
-    )
+    return str(
+        dados.get(
+            "status",
+            "",
+        )
+    ).lower()
 
 
 # =========================================================
-# VERIFICAR SE ESTÁ PAGO
+# PIX PAGO
 # =========================================================
 
 def pix_pago(
     transacao_id,
 ):
 
-    status = status_pix(
-        transacao_id
+    return (
+        status_pix(
+            transacao_id
+        )
+        == "paid"
     )
-
-    return status.lower() == "paid"
