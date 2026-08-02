@@ -41,7 +41,7 @@ def verificar_asaas():
         params={
             "limit": 1
         },
-        timeout=30
+        timeout=30,
     )
 
     if resposta.status_code != 200:
@@ -56,41 +56,188 @@ def verificar_asaas():
 
 
 # =========================================================
+# LIMPAR CPF / CNPJ
+# =========================================================
+
+def limpar_documento(documento):
+
+    if not documento:
+        return ""
+
+    return "".join(
+        caractere
+        for caractere in documento
+        if caractere.isdigit()
+    )
+
+
+# =========================================================
+# VALIDAR CPF
+# =========================================================
+
+def validar_cpf(cpf):
+
+    cpf = limpar_documento(cpf)
+
+    if len(cpf) != 11:
+        return False
+
+    if cpf == cpf[0] * 11:
+        return False
+
+    soma = 0
+
+    for i in range(9):
+        soma += int(cpf[i]) * (10 - i)
+
+    resto = soma % 11
+
+    digito1 = 0 if resto < 2 else 11 - resto
+
+    if int(cpf[9]) != digito1:
+        return False
+
+    soma = 0
+
+    for i in range(10):
+        soma += int(cpf[i]) * (11 - i)
+
+    resto = soma % 11
+
+    digito2 = 0 if resto < 2 else 11 - resto
+
+    if int(cpf[10]) != digito2:
+        return False
+
+    return True
+
+
+# =========================================================
+# VALIDAR CNPJ
+# =========================================================
+
+def validar_cnpj(cnpj):
+
+    cnpj = limpar_documento(cnpj)
+
+    if len(cnpj) != 14:
+        return False
+
+    if cnpj == cnpj[0] * 14:
+        return False
+
+    numeros = [int(x) for x in cnpj]
+
+    pesos1 = [
+        5, 4, 3, 2,
+        9, 8, 7, 6,
+        5, 4, 3, 2
+    ]
+
+    soma = sum(
+        numeros[i] * pesos1[i]
+        for i in range(12)
+    )
+
+    resto = soma % 11
+
+    digito1 = 0 if resto < 2 else 11 - resto
+
+    if numeros[12] != digito1:
+        return False
+
+    pesos2 = [
+        6, 5, 4, 3, 2,
+        9, 8, 7, 6,
+        5, 4, 3, 2
+    ]
+
+    soma = sum(
+        numeros[i] * pesos2[i]
+        for i in range(13)
+    )
+
+    resto = soma % 11
+
+    digito2 = 0 if resto < 2 else 11 - resto
+
+    if numeros[13] != digito2:
+        return False
+
+    return True
+
+
+# =========================================================
+# VALIDAR DOCUMENTO
+# =========================================================
+
+def validar_documento(documento):
+
+    documento = limpar_documento(documento)
+
+    if len(documento) == 11:
+        return validar_cpf(documento)
+
+    if len(documento) == 14:
+        return validar_cnpj(documento)
+
+    return False
+
+
+# =========================================================
 # CRIAR CLIENTE
 # =========================================================
 
 def criar_cliente(
     nome,
-    cpf_cnpj=None,
+    cpf_cnpj,
     email=None,
-    telefone=None
+    telefone=None,
+    external_reference=None,
 ):
 
-    url = f"{ASAAS_BASE_URL}/customers"
+    cpf_cnpj = limpar_documento(
+        cpf_cnpj
+    )
+
+    if not validar_documento(cpf_cnpj):
+
+        raise ValueError(
+            "CPF ou CNPJ inválido."
+        )
+
+    url = (
+        f"{ASAAS_BASE_URL}/customers"
+    )
 
     dados = {
-        "name": nome
+        "name": nome,
+        "cpfCnpj": cpf_cnpj,
+        "notificationDisabled": True,
     }
-
-    if cpf_cnpj:
-        dados["cpfCnpj"] = cpf_cnpj
 
     if email:
         dados["email"] = email
 
     if telefone:
-        dados["phone"] = telefone
+        dados["mobilePhone"] = telefone
+
+    if external_reference:
+
+        dados[
+            "externalReference"
+        ] = external_reference
 
     resposta = requests.post(
         url,
         headers=headers(),
         json=dados,
-        timeout=30
+        timeout=30,
     )
 
     if resposta.status_code not in (
         200,
-        201
+        201,
     ):
 
         raise Exception(
@@ -103,21 +250,29 @@ def criar_cliente(
 
 
 # =========================================================
-# BUSCAR CLIENTE POR CPF/CNPJ
+# BUSCAR CLIENTE POR CPF / CNPJ
 # =========================================================
 
-def buscar_cliente_por_cpf(cpf_cnpj):
+def buscar_cliente_por_cpf(
+    cpf_cnpj
+):
 
-    url = f"{ASAAS_BASE_URL}/customers"
+    cpf_cnpj = limpar_documento(
+        cpf_cnpj
+    )
+
+    url = (
+        f"{ASAAS_BASE_URL}/customers"
+    )
 
     resposta = requests.get(
         url,
         headers=headers(),
         params={
             "cpfCnpj": cpf_cnpj,
-            "limit": 10
+            "limit": 10,
         },
-        timeout=30
+        timeout=30,
     )
 
     if resposta.status_code != 200:
@@ -132,7 +287,7 @@ def buscar_cliente_por_cpf(cpf_cnpj):
 
     clientes = dados.get(
         "data",
-        []
+        [],
     )
 
     if clientes:
@@ -142,27 +297,34 @@ def buscar_cliente_por_cpf(cpf_cnpj):
 
 
 # =========================================================
-# BUSCAR CLIENTE POR E-MAIL
+# BUSCAR CLIENTE POR EXTERNAL REFERENCE
 # =========================================================
 
-def buscar_cliente_por_email(email):
+def buscar_cliente_por_external_reference(
+    external_reference
+):
 
-    url = f"{ASAAS_BASE_URL}/customers"
+    url = (
+        f"{ASAAS_BASE_URL}/customers"
+    )
 
     resposta = requests.get(
         url,
         headers=headers(),
         params={
-            "email": email,
-            "limit": 10
+            "externalReference": (
+                external_reference
+            ),
+            "limit": 100,
         },
-        timeout=30
+        timeout=30,
     )
 
     if resposta.status_code != 200:
 
         raise Exception(
-            "Erro ao buscar cliente por e-mail: "
+            "Erro ao buscar cliente por "
+            "externalReference: "
             f"{resposta.status_code} - "
             f"{resposta.text}"
         )
@@ -171,7 +333,7 @@ def buscar_cliente_por_email(email):
 
     clientes = dados.get(
         "data",
-        []
+        [],
     )
 
     if clientes:
@@ -181,49 +343,76 @@ def buscar_cliente_por_email(email):
 
 
 # =========================================================
-# OBTER CLIENTE
+# OBTER OU CRIAR CLIENTE
 # =========================================================
 
-def obter_cliente(
+def obter_ou_criar_cliente(
     nome,
+    cpf_cnpj,
     email=None,
-    cpf_cnpj=None
+    telefone=None,
+    external_reference=None,
 ):
 
+    cpf_cnpj = limpar_documento(
+        cpf_cnpj
+    )
+
     # -----------------------------------------------------
-    # TENTA CPF/CNPJ
+    # VALIDAR DOCUMENTO
     # -----------------------------------------------------
 
-    if cpf_cnpj:
+    if not validar_documento(cpf_cnpj):
 
-        cliente = buscar_cliente_por_cpf(
-            cpf_cnpj
+        raise ValueError(
+            "CPF ou CNPJ inválido."
+        )
+
+    # -----------------------------------------------------
+    # PRIMEIRO: CPF / CNPJ
+    # -----------------------------------------------------
+
+    cliente = buscar_cliente_por_cpf(
+        cpf_cnpj
+    )
+
+    if cliente:
+
+        return cliente
+
+    # -----------------------------------------------------
+    # SEGUNDO: EXTERNAL REFERENCE
+    # -----------------------------------------------------
+
+    if external_reference:
+
+        cliente = (
+            buscar_cliente_por_external_reference(
+                external_reference
+            )
         )
 
         if cliente:
+
+            # Se encontrou um cliente antigo
+            # sem CPF/CNPJ, devolvemos o cliente.
+            # A cobrança mostrará o erro do Asaas
+            # caso a conta exija atualização.
+
             return cliente
 
     # -----------------------------------------------------
-    # TENTA E-MAIL
-    # -----------------------------------------------------
-
-    if email:
-
-        cliente = buscar_cliente_por_email(
-            email
-        )
-
-        if cliente:
-            return cliente
-
-    # -----------------------------------------------------
-    # CRIA CLIENTE
+    # CRIAR CLIENTE
     # -----------------------------------------------------
 
     return criar_cliente(
         nome=nome,
         cpf_cnpj=cpf_cnpj,
-        email=email
+        email=email,
+        telefone=telefone,
+        external_reference=(
+            external_reference
+        ),
     )
 
 
@@ -234,34 +423,47 @@ def obter_cliente(
 def criar_cobranca_pix(
     valor,
     descricao,
-    cliente_id
+    cliente_id,
+    external_reference=None,
 ):
 
-    url = f"{ASAAS_BASE_URL}/payments"
+    url = (
+        f"{ASAAS_BASE_URL}/payments"
+    )
 
     # -----------------------------------------------------
     # VENCIMENTO
     # -----------------------------------------------------
     #
-    # Colocamos vencimento para amanhã.
-    # O Asaas exige o dueDate na criação da cobrança.
+    # Usaremos amanhã como vencimento.
+    #
+    # A API do Asaas exige dueDate na criação
+    # da cobrança.
     #
 
     vencimento = (
         date.today()
         + timedelta(days=1)
-    ).isoformat()
+    )
 
     dados = {
         "customer": cliente_id,
         "billingType": "PIX",
         "value": round(
             float(valor),
-            2
+            2,
         ),
-        "dueDate": vencimento,
+        "dueDate": (
+            vencimento.isoformat()
+        ),
         "description": descricao,
     }
+
+    if external_reference:
+
+        dados[
+            "externalReference"
+        ] = external_reference
 
     print(
         "CRIANDO COBRANÇA ASAAS:"
@@ -275,12 +477,12 @@ def criar_cobranca_pix(
         url,
         headers=headers(),
         json=dados,
-        timeout=30
+        timeout=30,
     )
 
     if resposta.status_code not in (
         200,
-        201
+        201,
     ):
 
         raise Exception(
@@ -308,7 +510,7 @@ def obter_qrcode_pix(
     resposta = requests.get(
         url,
         headers=headers(),
-        timeout=30
+        timeout=30,
     )
 
     if resposta.status_code != 200:
@@ -338,7 +540,7 @@ def consultar_cobranca(
     resposta = requests.get(
         url,
         headers=headers(),
-        timeout=30
+        timeout=30,
     )
 
     if resposta.status_code != 200:
@@ -368,12 +570,12 @@ def cancelar_cobranca(
     resposta = requests.delete(
         url,
         headers=headers(),
-        timeout=30
+        timeout=30,
     )
 
     if resposta.status_code not in (
         200,
-        204
+        204,
     ):
 
         raise Exception(
