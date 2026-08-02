@@ -16,6 +16,7 @@ from telegram.ext import (
 from config import (
     BOT_TOKEN,
     verificar_configuracao,
+    GRUPO_CLIENTES,
 )
 
 from database import (
@@ -38,21 +39,9 @@ from catalogo import (
     buscar_produto,
 )
 
-from asaas import (
-    criar_cobranca_pix,
-    obter_qrcode_pix,
-    consultar_cobranca,
-    obter_ou_criar_cliente,
-    validar_documento,
-)
-
-
-# =========================================================
-# CONFIGURAÇÕES
-# =========================================================
-
-GRUPO_CLIENTES = (
-    "https://t.me/PLAYERSTORYREFERENCIA"
+from pushinpay import (
+    criar_pix,
+    consultar_pix,
 )
 
 
@@ -78,10 +67,6 @@ async def start(
     ] = False
 
     context.user_data[
-        "aguardando_documento"
-    ] = False
-
-    context.user_data[
         "valor_saldo"
     ] = None
 
@@ -98,7 +83,7 @@ async def start(
 
 
 # =========================================================
-# COMPRA DE PRODUTO
+# COMPRAR PRODUTO
 # =========================================================
 
 async def comprar_produto(
@@ -254,10 +239,6 @@ async def pedir_valor_saldo(
     ] = True
 
     context.user_data[
-        "aguardando_documento"
-    ] = False
-
-    context.user_data[
         "valor_saldo"
     ] = None
 
@@ -353,181 +334,46 @@ async def processar_valor_saldo(
         "aguardando_valor"
     ] = False
 
-    context.user_data[
-        "aguardando_documento"
-    ] = True
-
-    await update.message.reply_text(
-        "🧾 *IDENTIFICAÇÃO DO PAGAMENTO*\n\n"
-        f"💰 Valor: *R$ {valor:.2f}*\n\n"
-        "Para continuar, digite seu "
-        "*CPF ou CNPJ*.\n\n"
-        "Exemplo:\n"
-        "`12345678909`\n\n"
-        "Pode enviar com ou sem pontos e traços.",
-        parse_mode="Markdown",
-    )
-# =========================================================
-# PROCESSAR CPF / CNPJ
-# =========================================================
-
-async def processar_documento(
-    update: Update,
-    context: ContextTypes.DEFAULT_TYPE,
-):
-
-    if not context.user_data.get(
-        "aguardando_documento"
-    ):
-
-        return
-
-    if not update.message:
-
-        return
-
-    documento = update.message.text.strip()
-
-    # -----------------------------------------------------
-    # LIMPAR DOCUMENTO
-    # -----------------------------------------------------
-
-    documento_limpo = "".join(
-        caractere
-        for caractere in documento
-        if caractere.isdigit()
-    )
-
-    # -----------------------------------------------------
-    # VALIDAR CPF / CNPJ
-    # -----------------------------------------------------
-
-    if not validar_documento(
-        documento_limpo
-    ):
-
-        await update.message.reply_text(
-            "❌ CPF ou CNPJ inválido.\n\n"
-            "Digite novamente.\n\n"
-            "Exemplo:\n"
-            "`12345678909`",
-            parse_mode="Markdown",
-        )
-
-        return
-
-    # -----------------------------------------------------
-    # PEGAR VALOR
-    # -----------------------------------------------------
-
-    valor = context.user_data.get(
-        "valor_saldo"
-    )
-
-    if not valor:
-
-        context.user_data[
-            "aguardando_documento"
-        ] = False
-
-        await update.message.reply_text(
-            "❌ Não encontrei o valor da cobrança.\n\n"
-            "Volte ao menu e tente novamente.",
-            reply_markup=menu_principal(),
-        )
-
-        return
-
-    # -----------------------------------------------------
-    # FINALIZAR ESTADO
-    # -----------------------------------------------------
-
-    context.user_data[
-        "aguardando_documento"
-    ] = False
-
-    context.user_data[
-        "valor_saldo"
-    ] = None
-
     usuario = update.effective_user
 
-    # -----------------------------------------------------
-    # MENSAGEM DE ESPERA
-    # -----------------------------------------------------
-
     mensagem = await update.message.reply_text(
-        "⏳ Gerando sua cobrança PIX..."
+        "⏳ Gerando seu PIX..."
     )
 
     try:
 
         # -------------------------------------------------
-        # NOME DO CLIENTE
+        # GERAR PIX PUSHINPAY
         # -------------------------------------------------
 
-        nome = (
-            usuario.full_name
-            or usuario.first_name
-            or f"Cliente {usuario.id}"
+        pix = criar_pix(
+            valor=valor
         )
 
-        # -------------------------------------------------
-        # REFERÊNCIA
-        # -------------------------------------------------
-
-        external_reference = (
-            f"telegram_{usuario.id}"
-        )
-
-        # -------------------------------------------------
-        # CRIAR / LOCALIZAR CLIENTE
-        # -------------------------------------------------
-
-        cliente = obter_ou_criar_cliente(
-            nome=nome,
-            cpf_cnpj=documento_limpo,
-            external_reference=(
-                external_reference
-            ),
-        )
-
-        cliente_id = cliente.get(
+        transacao_id = pix.get(
             "id"
         )
 
-        if not cliente_id:
+        qr_code = pix.get(
+            "qr_code"
+        )
+
+        qr_code_base64 = pix.get(
+            "qr_code_base64"
+        )
+
+        if not transacao_id:
 
             raise Exception(
-                "Asaas não retornou o ID "
-                "do cliente."
+                "PushinPay não retornou "
+                "o ID da transação."
             )
 
-        # -------------------------------------------------
-        # CRIAR COBRANÇA
-        # -------------------------------------------------
-
-        cobranca = criar_cobranca_pix(
-            valor=valor,
-            descricao=(
-                f"Adição de saldo - "
-                f"Telegram {usuario.id}"
-            ),
-            cliente_id=cliente_id,
-            external_reference=(
-                f"saldo_{usuario.id}"
-            ),
-        )
-
-        cobranca_id = cobranca.get(
-            "id"
-        )
-
-        if not cobranca_id:
+        if not qr_code:
 
             raise Exception(
-                "Asaas não retornou o ID "
-                "da cobrança."
+                "PushinPay não retornou "
+                "o QR Code."
             )
 
         # -------------------------------------------------
@@ -537,59 +383,24 @@ async def processar_documento(
         criar_pagamento(
             usuario.id,
             valor,
-            cobranca_id,
+            transacao_id,
         )
 
         # -------------------------------------------------
-        # OBTER QR CODE
-        # -------------------------------------------------
-
-        pix = obter_qrcode_pix(
-            cobranca_id
-        )
-
-        payload = pix.get(
-            "payload"
-        )
-
-        if not payload:
-
-            raise Exception(
-                "Asaas não retornou o "
-                "Pix Copia e Cola."
-            )
-
-        # -------------------------------------------------
-        # EXPIRAÇÃO
-        # -------------------------------------------------
-
-        expiration = pix.get(
-            "expirationDate",
-            "",
-        )
-
-        # -------------------------------------------------
-        # TEXTO PIX
+        # MONTAR MENSAGEM
         # -------------------------------------------------
 
         texto_pix = (
             "💳 *PAGAMENTO PIX*\n\n"
             f"💰 Valor: *R$ {valor:.2f}*\n\n"
             "📋 *Pix Copia e Cola:*\n\n"
-            f"`{payload}`\n\n"
+            f"`{qr_code}`\n\n"
             "👇 Copie o código acima e "
             "pague pelo seu banco.\n\n"
             "⏳ Depois do pagamento, "
             "clique em *Consultar pagamento* "
-            "para verificar a confirmação."
+            "para confirmar."
         )
-
-        if expiration:
-
-            texto_pix += (
-                f"\n\n⏰ Expiração: "
-                f"{expiration}"
-            )
 
         # -------------------------------------------------
         # BOTÕES
@@ -602,7 +413,7 @@ async def processar_documento(
                         "🔄 Consultar pagamento",
                         callback_data=(
                             f"consultar_pagamento_"
-                            f"{cobranca_id}"
+                            f"{transacao_id}"
                         ),
                     )
                 ],
@@ -639,9 +450,9 @@ async def processar_documento(
 
         await mensagem.edit_text(
             "❌ *Não foi possível gerar "
-            "a cobrança PIX.*\n\n"
+            "o PIX.*\n\n"
             "Ocorreu um erro ao comunicar "
-            "com o Asaas.\n\n"
+            "com a PushinPay.\n\n"
             "Tente novamente em alguns instantes.",
             parse_mode="Markdown",
         )
@@ -656,25 +467,6 @@ async def processar_mensagem_texto(
     context: ContextTypes.DEFAULT_TYPE,
 ):
 
-    # -----------------------------------------------------
-    # CPF / CNPJ
-    # -----------------------------------------------------
-
-    if context.user_data.get(
-        "aguardando_documento"
-    ):
-
-        await processar_documento(
-            update,
-            context,
-        )
-
-        return
-
-    # -----------------------------------------------------
-    # VALOR
-    # -----------------------------------------------------
-
     if context.user_data.get(
         "aguardando_valor"
     ):
@@ -685,20 +477,22 @@ async def processar_mensagem_texto(
         )
 
         return
+
+
 # =========================================================
 # CONSULTAR PAGAMENTO
 # =========================================================
 
 async def verificar_pagamento(
     query,
-    cobranca_id,
+    transacao_id,
 ):
 
     try:
 
         pagamento = (
             consultar_pagamento(
-                cobranca_id
+                transacao_id
             )
         )
 
@@ -716,35 +510,30 @@ async def verificar_pagamento(
         status_banco = pagamento[4]
 
         # -------------------------------------------------
-        # CONSULTAR ASAAS
+        # CONSULTAR PUSHINPAY
         # -------------------------------------------------
 
-        cobranca = (
-            consultar_cobranca(
-                cobranca_id
-            )
+        transacao = consultar_pix(
+            transacao_id
         )
 
-        status_asaas = (
-            cobranca.get(
+        status = str(
+            transacao.get(
                 "status",
-                "",
+                ""
             )
-        )
+        ).lower()
 
         print(
-            f"Pagamento {cobranca_id}: "
-            f"{status_asaas}"
+            f"Pagamento {transacao_id}: "
+            f"{status}"
         )
 
         # -------------------------------------------------
         # PAGAMENTO CONFIRMADO
         # -------------------------------------------------
 
-        if status_asaas in (
-            "RECEIVED",
-            "CONFIRMED",
-        ):
+        if status == "paid":
 
             # -------------------------------------------------
             # EVITAR DUPLICIDADE
@@ -753,7 +542,7 @@ async def verificar_pagamento(
             if status_banco != "pago":
 
                 atualizar_status_pagamento(
-                    cobranca_id,
+                    transacao_id,
                     "pago",
                 )
 
@@ -803,9 +592,9 @@ async def verificar_pagamento(
         # PENDENTE
         # -------------------------------------------------
 
-        if status_asaas in (
-            "PENDING",
-            "AWAITING_RISK_ANALYSIS",
+        if status in (
+            "created",
+            "pending",
         ):
 
             await query.answer(
@@ -816,25 +605,20 @@ async def verificar_pagamento(
             return
 
         # -------------------------------------------------
-        # CANCELADO / ESTORNADO
+        # CANCELADO
         # -------------------------------------------------
 
-        if status_asaas in (
-            "CANCELED",
-            "REFUNDED",
-            "REFUND_REQUESTED",
-        ):
+        if status == "canceled":
 
             if status_banco != "pago":
 
                 atualizar_status_pagamento(
-                    cobranca_id,
-                    status_asaas.lower(),
+                    transacao_id,
+                    "cancelado",
                 )
 
             await query.edit_message_text(
-                "❌ *PAGAMENTO NÃO CONCLUÍDO*\n\n"
-                f"Status: {status_asaas}\n\n"
+                "❌ *PAGAMENTO CANCELADO*\n\n"
                 "Nenhum saldo foi adicionado.",
                 reply_markup=menu_principal(),
                 parse_mode="Markdown",
@@ -847,7 +631,7 @@ async def verificar_pagamento(
         # -------------------------------------------------
 
         await query.answer(
-            f"Status atual: {status_asaas}",
+            f"Status atual: {status}",
             show_alert=True,
         )
 
@@ -892,7 +676,7 @@ async def botoes(
         "consultar_pagamento_"
     ):
 
-        cobranca_id = (
+        transacao_id = (
             acao.replace(
                 "consultar_pagamento_",
                 "",
@@ -902,7 +686,7 @@ async def botoes(
 
         await verificar_pagamento(
             query,
-            cobranca_id,
+            transacao_id,
         )
 
         return
@@ -1091,6 +875,7 @@ async def botoes(
         )
 
         return
+
     # =====================================================
     # VOLTAR AO MENU
     # =====================================================
@@ -1099,10 +884,6 @@ async def botoes(
 
         context.user_data[
             "aguardando_valor"
-        ] = False
-
-        context.user_data[
-            "aguardando_documento"
         ] = False
 
         context.user_data[
@@ -1119,7 +900,7 @@ async def botoes(
         return
 
     # =====================================================
-    # GRUPO / REFERÊNCIA
+    # GRUPO
     # =====================================================
 
     if acao == "grupo":
@@ -1154,7 +935,7 @@ async def botoes(
         return
 
     # =====================================================
-    # USUÁRIO
+    # PERFIL
     # =====================================================
 
     if acao == "perfil":
@@ -1218,8 +999,8 @@ async def botoes(
             "Escolha um produto no catálogo "
             "e clique em Comprar.\n\n"
             "💳 *Adicionar saldo*\n"
-            "Escolha o valor, informe seu CPF "
-            "ou CNPJ e o bot irá gerar um PIX.\n\n"
+            "Escolha o valor e o bot irá "
+            "gerar um PIX automaticamente.\n\n"
             "💰 *Saldo*\n"
             "Veja seu saldo disponível.\n\n"
             "📱 Após realizar o pagamento PIX, "
