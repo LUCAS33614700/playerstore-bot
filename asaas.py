@@ -1,6 +1,5 @@
 import requests
-
-from datetime import date
+from datetime import date, timedelta
 
 from config import ASAAS_API_KEY
 
@@ -18,6 +17,11 @@ ASAAS_BASE_URL = "https://api.asaas.com/v3"
 
 def headers():
 
+    if not ASAAS_API_KEY:
+        raise ValueError(
+            "ASAAS_API_KEY não configurada."
+        )
+
     return {
         "accept": "application/json",
         "content-type": "application/json",
@@ -30,12 +34,6 @@ def headers():
 # =========================================================
 
 def verificar_asaas():
-
-    if not ASAAS_API_KEY:
-
-        raise ValueError(
-            "ASAAS_API_KEY não configurada."
-        )
 
     resposta = requests.get(
         f"{ASAAS_BASE_URL}/customers",
@@ -75,15 +73,12 @@ def criar_cliente(
     }
 
     if cpf_cnpj:
-
         dados["cpfCnpj"] = cpf_cnpj
 
     if email:
-
         dados["email"] = email
 
     if telefone:
-
         dados["phone"] = telefone
 
     resposta = requests.post(
@@ -111,9 +106,7 @@ def criar_cliente(
 # BUSCAR CLIENTE POR CPF/CNPJ
 # =========================================================
 
-def buscar_cliente_por_cpf(
-    cpf_cnpj
-):
+def buscar_cliente_por_cpf(cpf_cnpj):
 
     url = f"{ASAAS_BASE_URL}/customers"
 
@@ -143,7 +136,6 @@ def buscar_cliente_por_cpf(
     )
 
     if clientes:
-
         return clientes[0]
 
     return None
@@ -153,9 +145,7 @@ def buscar_cliente_por_cpf(
 # BUSCAR CLIENTE POR E-MAIL
 # =========================================================
 
-def buscar_cliente_por_email(
-    email
-):
+def buscar_cliente_por_email(email):
 
     url = f"{ASAAS_BASE_URL}/customers"
 
@@ -185,7 +175,6 @@ def buscar_cliente_por_email(
     )
 
     if clientes:
-
         return clientes[0]
 
     return None
@@ -202,7 +191,7 @@ def obter_cliente(
 ):
 
     # -----------------------------------------------------
-    # PRIMEIRO TENTA ENCONTRAR POR CPF/CNPJ
+    # TENTA CPF/CNPJ
     # -----------------------------------------------------
 
     if cpf_cnpj:
@@ -212,11 +201,10 @@ def obter_cliente(
         )
 
         if cliente:
-
             return cliente
 
     # -----------------------------------------------------
-    # DEPOIS TENTA ENCONTRAR POR E-MAIL
+    # TENTA E-MAIL
     # -----------------------------------------------------
 
     if email:
@@ -226,11 +214,10 @@ def obter_cliente(
         )
 
         if cliente:
-
             return cliente
 
     # -----------------------------------------------------
-    # SE NÃO ENCONTROU, CRIA
+    # CRIA CLIENTE
     # -----------------------------------------------------
 
     return criar_cliente(
@@ -252,16 +239,37 @@ def criar_cobranca_pix(
 
     url = f"{ASAAS_BASE_URL}/payments"
 
+    # -----------------------------------------------------
+    # VENCIMENTO
+    # -----------------------------------------------------
+    #
+    # Colocamos vencimento para amanhã.
+    # O Asaas exige o dueDate na criação da cobrança.
+    #
+
+    vencimento = (
+        date.today()
+        + timedelta(days=1)
+    ).isoformat()
+
     dados = {
         "customer": cliente_id,
         "billingType": "PIX",
-        "value": round(float(valor), 2),
-
-        # Data de vencimento da cobrança
-        "dueDate": date.today().isoformat(),
-
+        "value": round(
+            float(valor),
+            2
+        ),
+        "dueDate": vencimento,
         "description": descricao,
     }
+
+    print(
+        "CRIANDO COBRANÇA ASAAS:"
+    )
+
+    print(
+        dados
+    )
 
     resposta = requests.post(
         url,
