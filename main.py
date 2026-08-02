@@ -20,15 +20,20 @@ from database import (
     consultar_saldo,
     conectar,
     retirar_saldo,
+    adicionar_saldo,
     criar_pagamento,
+    consultar_pagamento,
+    atualizar_status_pagamento,
 )
 
 from menu import menu_principal
 from catalogo import menu_catalogo, buscar_produto
 
 from asaas import (
+    criar_cliente,
     criar_cobranca_pix,
     obter_qrcode_pix,
+    consultar_cobranca,
 )
 
 
@@ -177,7 +182,7 @@ async def pedir_valor_saldo(
     await query.edit_message_text(
         "💵 *ADICIONAR SALDO*\n\n"
         "Digite o valor que deseja adicionar.\n\n"
-        "Exemplo:\n"
+        "Exemplos:\n"
         "`10`\n"
         "`25.50`\n"
         "`100`",
@@ -194,7 +199,7 @@ async def pedir_valor_saldo(
 
 
 # =========================================================
-# PROCESSAR VALOR DO SALDO
+# GERAR PAGAMENTO PIX
 # =========================================================
 
 async def processar_valor_saldo(
@@ -238,38 +243,279 @@ async def processar_valor_saldo(
 
     usuario = update.effective_user
 
+    mensagem = await update.message.reply_text(
+        "⏳ Gerando sua cobrança PIX..."
+    )
+
     try:
         # -------------------------------------------------
-        # ATENÇÃO:
-        # Para gerar a cobrança, precisamos de um cliente
-        # Asaas. Neste primeiro passo, vamos procurar um
-        # cliente pelo e-mail/CPF posteriormente.
+        # CRIAR CLIENTE ASAAS
         # -------------------------------------------------
 
-        await update.message.reply_text(
-            "⏳ Gerando sua cobrança PIX..."
+        nome = usuario.first_name or "Cliente"
+
+        username = usuario.username
+
+        if username:
+            email = (
+                f"telegram_{usuario.id}_"
+                f"{username}@playerstore.local"
+            )
+        else:
+            email = (
+                f"telegram_{usuario.id}"
+                "@playerstore.local"
+            )
+
+        cliente = criar_cliente(
+            nome=nome,
+            email=email
         )
 
-        # Por enquanto vamos informar que falta o cadastro
-        # do cliente Asaas.
-        #
-        # Na próxima etapa vamos implementar essa parte.
+        cliente_id = cliente.get("id")
 
-        await update.message.reply_text(
-            "⚠️ A integração com o cliente Asaas ainda "
-            "precisa ser configurada.\n\n"
-            f"💰 Valor solicitado: R$ {valor:.2f}\n\n"
-            "Não foi gerada nenhuma cobrança."
+        if not cliente_id:
+            raise Exception(
+                "O Asaas não retornou o ID do cliente."
+            )
+
+        # -------------------------------------------------
+        # CRIAR COBRANÇA
+        # -------------------------------------------------
+
+        cobranca = criar_cobranca_pix(
+            valor=valor,
+            descricao=(
+                f"Adição de saldo - "
+                f"PLAYER STORE - "
+                f"Telegram {usuario.id}"
+            ),
+            cliente_id=cliente_id
+        )
+
+        cobranca_id = cobranca.get("id")
+
+        if not cobranca_id:
+            raise Exception(
+                "O Asaas não retornou o ID da cobrança."
+            )
+
+        # -------------------------------------------------
+        # REGISTRAR PAGAMENTO NO BANCO
+        # -------------------------------------------------
+
+        criar_pagamento(
+            usuario_id=usuario.id,
+            valor=valor,
+            asaas_id=cobranca_id
+        )
+
+        # -------------------------------------------------
+        # OBTER PIX
+        # -------------------------------------------------
+
+        pix = obter_qrcode_pix(
+            cobranca_id
+        )
+
+        codigo_pix = (
+            pix.get("payload")
+            or pix.get("encodedImage")
+            or ""
+        )
+
+        if not codigo_pix:
+            codigo_pix = (
+                "Não foi possível obter o "
+                "código PIX automaticamente."
+            )
+
+        # -------------------------------------------------
+        # MONTAR MENSAGEM
+        # -------------------------------------------------
+
+        texto_pix = (
+            "💵 *PAGAMENTO PIX*\n\n"
+            f"💰 Valor: *R$ {valor:.2f}*\n\n"
+            "📱 Faça o pagamento usando o PIX.\n\n"
+            "📋 *PIX copia e cola:*\n"
+            f"`{codigo_pix}`\n\n"
+            "Depois de realizar o pagamento, "
+            "clique em *Verificar pagamento*.\n\n"
+            "⚠️ O saldo somente será liberado "
+            "após a confirmação do pagamento."
+        )
+
+        botoes = [
+            [
+                InlineKeyboardButton(
+                    "🔄 Verificar pagamento",
+                    callback_data=f"verificar_pagamento_{cobranca_id}"
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    "⬅️ Voltar",
+                    callback_data="voltar_menu"
+                )
+            ]
+        ]
+
+        await mensagem.edit_text(
+            texto_pix,
+            reply_markup=InlineKeyboardMarkup(botoes),
+            parse_mode="Markdown"
         )
 
     except Exception as erro:
         print(
-            f"Erro ao gerar cobrança: {erro}"
+            f"Erro ao gerar cobrança PIX: {erro}"
         )
 
-        await update.message.reply_text(
-            "❌ Não foi possível gerar a cobrança PIX.\n\n"
-            "Tente novamente mais tarde."
+        await mensagem.edit_text(
+            "❌ *Não foi possível gerar o PIX.*\n\n"
+            "Verifique se a chave da API do Asaas "
+            "está configurada corretamente no Railway.\n\n"
+            "Tente novamente em alguns instantes.",
+            reply_markup=menu_principal(),
+            parse_mode="Markdown"
+        )
+
+
+# =========================================================
+# VERIFICAR PAGAMENTO
+# =========================================================
+
+async def verificar_pagamento(
+    query,
+    cobranca_id
+):
+    try:
+        pagamento = consultar_pagamento(
+            cobranca_id
+        )
+
+        if not pagamento:
+            await query.answer(
+                "❌ Pagamento não encontrado.",
+                show_alert=True
+            )
+            return
+
+        pagamento_id = pagamento[0]
+        usuario_id = pagamento[1]
+        valor = pagamento[2]
+        status_atual = pagamento[4]
+
+        # -------------------------------------------------
+        # CONSULTAR ASAAS
+        # -------------------------------------------------
+
+        cobranca = consultar_cobranca(
+            cobranca_id
+        )
+
+        status_asaas = cobranca.get(
+            "status",
+            ""
+        )
+
+        # -------------------------------------------------
+        # PAGAMENTO CONFIRMADO
+        # -------------------------------------------------
+
+        status_pagos = (
+            "RECEIVED",
+            "CONFIRMED"
+        )
+
+        if status_asaas in status_pagos:
+
+            if status_atual == "pago":
+                await query.answer(
+                    "✅ Este pagamento já foi processado.",
+                    show_alert=True
+                )
+                return
+
+            atualizar_status_pagamento(
+                cobranca_id,
+                "pago"
+            )
+
+            adicionar_saldo(
+                usuario_id,
+                valor
+            )
+
+            novo_saldo = consultar_saldo(
+                usuario_id
+            )
+
+            await query.edit_message_text(
+                "✅ *PAGAMENTO CONFIRMADO!*\n\n"
+                f"💰 Valor adicionado: "
+                f"R$ {valor:.2f}\n\n"
+                f"💳 Seu novo saldo: "
+                f"R$ {novo_saldo:.2f}\n\n"
+                "Obrigado pela compra! 🛒",
+                reply_markup=menu_principal(),
+                parse_mode="Markdown"
+            )
+
+            return
+
+        # -------------------------------------------------
+        # PAGAMENTO AINDA PENDENTE
+        # -------------------------------------------------
+
+        if status_asaas in (
+            "PENDING",
+            "AWAITING_RISK_ANALYSIS"
+        ):
+            await query.answer(
+                "⏳ Pagamento ainda não confirmado.",
+                show_alert=True
+            )
+            return
+
+        # -------------------------------------------------
+        # PAGAMENTO CANCELADO / VENCIDO
+        # -------------------------------------------------
+
+        if status_asaas in (
+            "CANCELLED",
+            "EXPIRED",
+            "REFUNDED",
+            "REFUND_REQUESTED"
+        ):
+            atualizar_status_pagamento(
+                cobranca_id,
+                status_asaas.lower()
+            )
+
+            await query.edit_message_text(
+                "❌ *PAGAMENTO NÃO CONCLUÍDO*\n\n"
+                f"Status: `{status_asaas}`\n\n"
+                "A cobrança não foi confirmada.",
+                reply_markup=menu_principal(),
+                parse_mode="Markdown"
+            )
+            return
+
+        await query.answer(
+            f"⏳ Status atual: {status_asaas}",
+            show_alert=True
+        )
+
+    except Exception as erro:
+        print(
+            f"Erro ao verificar pagamento: {erro}"
+        )
+
+        await query.answer(
+            "❌ Não foi possível consultar o pagamento.",
+            show_alert=True
         )
 
 
@@ -418,6 +664,25 @@ async def botoes(
         )
 
     # -----------------------------------------------------
+    # VERIFICAR PAGAMENTO
+    # -----------------------------------------------------
+
+    elif acao.startswith(
+        "verificar_pagamento_"
+    ):
+
+        cobranca_id = acao.replace(
+            "verificar_pagamento_",
+            "",
+            1
+        )
+
+        await verificar_pagamento(
+            query,
+            cobranca_id
+        )
+
+    # -----------------------------------------------------
     # PERFIL
     # -----------------------------------------------------
 
@@ -541,130 +806,4 @@ async def botoes(
         await query.edit_message_text(
             "🆘 *SUPORTE*\n\n"
             "Entre em contato com o suporte.",
-            reply_markup=menu_principal(),
-            parse_mode="Markdown"
-        )
-
-    # -----------------------------------------------------
-    # TERMOS
-    # -----------------------------------------------------
-
-    elif acao == "termos":
-
-        await query.edit_message_text(
-            "📜 *TERMOS DE USO*\n\n"
-            "Os termos de uso serão adicionados aqui.",
-            reply_markup=menu_principal(),
-            parse_mode="Markdown"
-        )
-
-    # -----------------------------------------------------
-    # OUTROS BOTS
-    # -----------------------------------------------------
-
-    elif acao == "outros_bots":
-
-        await query.edit_message_text(
-            "🤖 *OUTROS BOTS*\n\n"
-            "Em breve.",
-            reply_markup=menu_principal(),
-            parse_mode="Markdown"
-        )
-
-    # -----------------------------------------------------
-    # GRUPO
-    # -----------------------------------------------------
-
-    elif acao == "grupo":
-
-        await query.edit_message_text(
-            "👥 *GRUPO DE CLIENTES*\n\n"
-            "Entre no nosso grupo de clientes "
-            "pelo botão abaixo.",
-            reply_markup=InlineKeyboardMarkup([
-                [
-                    InlineKeyboardButton(
-                        "👥 ENTRAR NO GRUPO",
-                        url=GRUPO_CLIENTES
-                    )
-                ],
-                [
-                    InlineKeyboardButton(
-                        "⬅️ Voltar",
-                        callback_data="voltar_menu"
-                    )
-                ]
-            ]),
-            parse_mode="Markdown"
-        )
-
-    # -----------------------------------------------------
-    # ALUGAR
-    # -----------------------------------------------------
-
-    elif acao == "alugar":
-
-        await query.edit_message_text(
-            "📣 *ALUGAR ESTE BOT*\n\n"
-            "Em breve você poderá solicitar "
-            "seu próprio bot.",
-            reply_markup=menu_principal(),
-            parse_mode="Markdown"
-        )
-
-    # -----------------------------------------------------
-    # SEM ESTOQUE
-    # -----------------------------------------------------
-
-    elif acao == "sem_estoque":
-
-        await query.answer(
-            "📦 O estoque está vazio.",
-            show_alert=True
-        )
-
-
-# =========================================================
-# MAIN
-# =========================================================
-
-def main():
-
-    verificar_configuracao()
-
-    criar_tabelas()
-
-    app = (
-        Application
-        .builder()
-        .token(BOT_TOKEN)
-        .build()
-    )
-
-    app.add_handler(
-        CommandHandler(
-            "start",
-            start
-        )
-    )
-
-    app.add_handler(
-        CallbackQueryHandler(
-            botoes
-        )
-    )
-
-    app.add_handler(
-        MessageHandler(
-            filters.TEXT & ~filters.COMMAND,
-            processar_valor_saldo
-        )
-    )
-
-    print("🤖 Bot iniciado!")
-
-    app.run_polling()
-
-
-if __name__ == "__main__":
-    main()
+      
