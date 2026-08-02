@@ -80,6 +80,88 @@ def criar_tabelas():
         )
     """)
 
+    # -----------------------------------------------------
+    # CATEGORIAS
+    # -----------------------------------------------------
+
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS categorias (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            nome TEXT NOT NULL UNIQUE,
+            emoji TEXT DEFAULT '📦',
+            ordem INTEGER DEFAULT 0
+        )
+    """)
+
+    # -----------------------------------------------------
+    # ADICIONAR CATEGORIAS PADRÃO
+    # -----------------------------------------------------
+
+    categorias = [
+        ("Telas", "📺", 1),
+        ("Contas", "🟢", 2),
+        ("Outros", "📦", 3),
+    ]
+
+    for nome, emoji, ordem in categorias:
+
+        cursor.execute("""
+            INSERT OR IGNORE INTO categorias
+            (
+                nome,
+                emoji,
+                ordem
+            )
+            VALUES (?, ?, ?)
+        """, (
+            nome,
+            emoji,
+            ordem
+        ))
+
+    # -----------------------------------------------------
+    # RELACIONAR PRODUTOS COM CATEGORIAS
+    #
+    # Não alteramos a tabela produtos existente.
+    # Criamos uma tabela separada para fazer a relação.
+    # -----------------------------------------------------
+
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS produto_categorias (
+            produto_id INTEGER PRIMARY KEY,
+            categoria_id INTEGER NOT NULL
+        )
+    """)
+
+    # -----------------------------------------------------
+    # ESTOQUE INDIVIDUAL DE LOGINS
+    #
+    # Cada linha representa UMA conta disponível.
+    #
+    # Exemplo:
+    #
+    # Email: exemplo@gmail.com
+    # Senha: 123456
+    # PIN: 1234
+    #
+    # -----------------------------------------------------
+
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS logins (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            produto_id INTEGER NOT NULL,
+            dados TEXT NOT NULL,
+            status TEXT DEFAULT 'disponivel',
+            usuario_id INTEGER,
+            pedido_id INTEGER,
+            vendido_em TIMESTAMP
+        )
+    """)
+
+    # -----------------------------------------------------
+    # COMMIT
+    # -----------------------------------------------------
+
     conn.commit()
     conn.close()
 
@@ -217,7 +299,7 @@ def retirar_saldo(
         valor,
         user_id,
         valor,
-        ))
+    ))
 
     alterado = (
         cursor.rowcount > 0
@@ -348,6 +430,473 @@ def atualizar_estoque(
 
 
 # =========================================================
+# CATEGORIAS
+# =========================================================
+
+def listar_categorias():
+
+    conn = conectar()
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        SELECT
+            id,
+            nome,
+            emoji,
+            ordem
+        FROM categorias
+        ORDER BY ordem, id
+    """)
+
+    categorias = cursor.fetchall()
+
+    conn.close()
+
+    return categorias
+
+
+def buscar_categoria(
+    categoria_id,
+):
+
+    conn = conectar()
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        SELECT
+            id,
+            nome,
+            emoji,
+            ordem
+        FROM categorias
+        WHERE id = ?
+    """, (
+        categoria_id,
+    ))
+
+    categoria = cursor.fetchone()
+
+    conn.close()
+
+    return categoria
+
+
+def buscar_categoria_por_nome(
+    nome,
+):
+
+    conn = conectar()
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        SELECT
+            id,
+            nome,
+            emoji,
+            ordem
+        FROM categorias
+        WHERE nome = ?
+    """, (
+        nome,
+    ))
+
+    categoria = cursor.fetchone()
+
+    conn.close()
+
+    return categoria
+
+
+# =========================================================
+# RELAÇÃO PRODUTO / CATEGORIA
+# =========================================================
+
+def definir_categoria_produto(
+    produto_id,
+    categoria_id,
+):
+
+    conn = conectar()
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        INSERT OR REPLACE INTO produto_categorias
+        (
+            produto_id,
+            categoria_id
+        )
+        VALUES (?, ?)
+    """, (
+        produto_id,
+        categoria_id,
+    ))
+
+    conn.commit()
+    conn.close()
+
+
+def consultar_categoria_produto(
+    produto_id,
+):
+
+    conn = conectar()
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        SELECT
+            c.id,
+            c.nome,
+            c.emoji,
+            c.ordem
+        FROM categorias c
+        INNER JOIN produto_categorias pc
+            ON pc.categoria_id = c.id
+        WHERE pc.produto_id = ?
+    """, (
+        produto_id,
+    ))
+
+    categoria = cursor.fetchone()
+
+    conn.close()
+
+    return categoria
+
+
+def listar_produtos_categoria(
+    categoria_id,
+):
+
+    conn = conectar()
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        SELECT
+            p.id,
+            p.nome,
+            p.descricao,
+            p.preco,
+            p.estoque
+        FROM produtos p
+        INNER JOIN produto_categorias pc
+            ON pc.produto_id = p.id
+        WHERE pc.categoria_id = ?
+        AND p.estoque > 0
+        ORDER BY p.id
+    """, (
+        categoria_id,
+    ))
+
+    produtos = cursor.fetchall()
+
+    conn.close()
+
+    return produtos
+
+
+# =========================================================
+# LOGINS
+# =========================================================
+
+def adicionar_login(
+    produto_id,
+    dados,
+):
+
+    conn = conectar()
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        INSERT INTO logins
+        (
+            produto_id,
+            dados,
+            status
+        )
+        VALUES (?, ?, 'disponivel')
+    """, (
+        produto_id,
+        dados,
+    ))
+
+    login_id = cursor.lastrowid
+
+    # Atualiza o estoque do produto
+    cursor.execute("""
+        UPDATE produtos
+        SET estoque = estoque + 1
+        WHERE id = ?
+    """, (
+        produto_id,
+    ))
+
+    conn.commit()
+    conn.close()
+
+    return login_id
+
+
+def listar_logins_disponiveis(
+    produto_id,
+):
+
+    conn = conectar()
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        SELECT
+            id,
+            dados
+        FROM logins
+        WHERE produto_id = ?
+        AND status = 'disponivel'
+        ORDER BY id
+    """, (
+        produto_id,
+    ))
+
+    logins = cursor.fetchall()
+
+    conn.close()
+
+    return logins
+
+
+def consultar_estoque_logins(
+    produto_id,
+):
+
+    conn = conectar()
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        SELECT COUNT(*)
+        FROM logins
+        WHERE produto_id = ?
+        AND status = 'disponivel'
+    """, (
+        produto_id,
+    ))
+
+    resultado = cursor.fetchone()
+
+    conn.close()
+
+    if resultado:
+        return resultado[0]
+
+    return 0
+
+
+def retirar_login_disponivel(
+    produto_id,
+    usuario_id,
+    pedido_id=None,
+):
+
+    conn = conectar()
+    cursor = conn.cursor()
+
+    try:
+
+        cursor.execute(
+            "BEGIN IMMEDIATE"
+        )
+
+        # Pega somente UM login disponível
+        cursor.execute("""
+            SELECT
+                id,
+                dados
+            FROM logins
+            WHERE produto_id = ?
+            AND status = 'disponivel'
+            ORDER BY id
+            LIMIT 1
+        """, (
+            produto_id,
+        ))
+
+        login = cursor.fetchone()
+
+        if not login:
+
+            conn.rollback()
+            conn.close()
+
+            return None
+
+        login_id = login[0]
+        dados = login[1]
+
+        # Marca o login como vendido
+        cursor.execute("""
+            UPDATE logins
+            SET status = 'vendido',
+                usuario_id = ?,
+                pedido_id = ?,
+                vendido_em = CURRENT_TIMESTAMP
+            WHERE id = ?
+            AND status = 'disponivel'
+        """, (
+            usuario_id,
+            pedido_id,
+            login_id,
+        ))
+
+        if cursor.rowcount != 1:
+
+            conn.rollback()
+            conn.close()
+
+            return None
+
+        # Diminui estoque do produto
+        cursor.execute("""
+            UPDATE produtos
+            SET estoque = CASE
+                WHEN estoque > 0 THEN estoque - 1
+                ELSE 0
+            END
+            WHERE id = ?
+        """, (
+            produto_id,
+        ))
+
+        conn.commit()
+        conn.close()
+
+        return {
+            "id": login_id,
+            "dados": dados,
+        }
+
+    except Exception:
+
+        conn.rollback()
+        conn.close()
+
+        raise
+
+
+def consultar_login(
+    login_id,
+):
+
+    conn = conectar()
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        SELECT
+            id,
+            produto_id,
+            dados,
+            status,
+            usuario_id,
+            pedido_id,
+            vendido_em
+        FROM logins
+        WHERE id = ?
+    """, (
+        login_id,
+    ))
+
+    login = cursor.fetchone()
+
+    conn.close()
+
+    return login
+
+
+def excluir_login(
+    login_id,
+):
+
+    conn = conectar()
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        SELECT
+            produto_id,
+            status
+        FROM logins
+        WHERE id = ?
+    """, (
+        login_id,
+    ))
+
+    login = cursor.fetchone()
+
+    if not login:
+
+        conn.close()
+
+        return False
+
+    produto_id = login[0]
+    status = login[1]
+
+    cursor.execute("""
+        DELETE FROM logins
+        WHERE id = ?
+    """, (
+        login_id,
+    ))
+
+    excluido = (
+        cursor.rowcount > 0
+    )
+
+    # Se estava disponível, diminui estoque
+    if excluido and status == "disponivel":
+
+        cursor.execute("""
+            UPDATE produtos
+            SET estoque = CASE
+                WHEN estoque > 0 THEN estoque - 1
+                ELSE 0
+            END
+            WHERE id = ?
+        """, (
+            produto_id,
+        ))
+
+    conn.commit()
+    conn.close()
+
+    return excluido
+
+
+def listar_logins_produto(
+    produto_id,
+):
+
+    conn = conectar()
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        SELECT
+            id,
+            dados,
+            status,
+            usuario_id,
+            pedido_id,
+            vendido_em
+        FROM logins
+        WHERE produto_id = ?
+        ORDER BY id
+    """, (
+        produto_id,
+    ))
+
+    logins = cursor.fetchall()
+
+    conn.close()
+
+    return logins
+
+
+# =========================================================
 # PAGAMENTOS
 # =========================================================
 
@@ -475,17 +1024,6 @@ def listar_pagamentos_pendentes():
 
 # =========================================================
 # CONFIRMAR PAGAMENTO COM SEGURANÇA
-#
-# Esta função faz:
-#
-# 1. Localiza o PIX pendente
-# 2. Confirma que ainda está pendente
-# 3. Marca como pago
-# 4. Adiciona o saldo
-# 5. Tudo na mesma transação SQLite
-#
-# Assim o mesmo PIX não pode gerar
-# dois créditos.
 # =========================================================
 
 def processar_pagamento_pago(
@@ -524,12 +1062,13 @@ def processar_pagamento_pago(
             return None
 
         usuario_id = pagamento[0]
+
         valor = float(
             pagamento[1]
         )
+
         status = pagamento[2]
 
-        # Já processado
         if status == "pago":
 
             conn.rollback()
@@ -537,7 +1076,6 @@ def processar_pagamento_pago(
 
             return None
 
-        # Só processa pagamento pendente
         if status != "pendente":
 
             conn.rollback()
@@ -545,7 +1083,6 @@ def processar_pagamento_pago(
 
             return None
 
-        # Marca como pago
         cursor.execute("""
             UPDATE pagamentos
             SET status = 'pago'
@@ -562,7 +1099,6 @@ def processar_pagamento_pago(
 
             return None
 
-        # Adiciona saldo
         cursor.execute("""
             UPDATE usuarios
             SET saldo = saldo + ?
