@@ -1091,3 +1091,269 @@ async def botoes(
         )
 
         return
+    # =====================================================
+    # VOLTAR AO MENU
+    # =====================================================
+
+    if acao == "voltar_menu":
+
+        context.user_data[
+            "aguardando_valor"
+        ] = False
+
+        context.user_data[
+            "aguardando_documento"
+        ] = False
+
+        context.user_data[
+            "valor_saldo"
+        ] = None
+
+        await query.edit_message_text(
+            "🛒 *PLAYER STORE*\n\n"
+            "Escolha uma opção abaixo:",
+            reply_markup=menu_principal(),
+            parse_mode="Markdown",
+        )
+
+        return
+
+    # =====================================================
+    # GRUPO / REFERÊNCIA
+    # =====================================================
+
+    if acao == "grupo":
+
+        botoes_grupo = InlineKeyboardMarkup(
+            [
+                [
+                    InlineKeyboardButton(
+                        "👥 Entrar no grupo",
+                        url=GRUPO_CLIENTES,
+                    )
+                ],
+                [
+                    InlineKeyboardButton(
+                        "⬅️ Voltar",
+                        callback_data=(
+                            "voltar_menu"
+                        ),
+                    )
+                ],
+            ]
+        )
+
+        await query.edit_message_text(
+            "👥 *GRUPO DE CLIENTES*\n\n"
+            "Entre no nosso grupo para "
+            "acompanhar novidades e referências.",
+            reply_markup=botoes_grupo,
+            parse_mode="Markdown",
+        )
+
+        return
+
+    # =====================================================
+    # USUÁRIO
+    # =====================================================
+
+    if acao == "perfil":
+
+        usuario = consultar_usuario(
+            usuario_id
+        )
+
+        saldo = consultar_saldo(
+            usuario_id
+        )
+
+        nome = (
+            query.from_user.full_name
+            or query.from_user.first_name
+            or "Usuário"
+        )
+
+        username = (
+            query.from_user.username
+        )
+
+        texto_username = (
+            f"@{username}"
+            if username
+            else "Não informado"
+        )
+
+        await query.edit_message_text(
+            "👤 *MEU PERFIL*\n\n"
+            f"🧑 Nome: {nome}\n"
+            f"🔗 Username: {texto_username}\n"
+            f"🆔 ID: `{usuario_id}`\n\n"
+            f"💰 Saldo: R$ {saldo:.2f}",
+            reply_markup=InlineKeyboardMarkup(
+                [
+                    [
+                        InlineKeyboardButton(
+                            "⬅️ Voltar",
+                            callback_data=(
+                                "voltar_menu"
+                            ),
+                        )
+                    ]
+                ]
+            ),
+            parse_mode="Markdown",
+        )
+
+        return
+
+    # =====================================================
+    # AJUDA
+    # =====================================================
+
+    if acao == "ajuda":
+
+        await query.edit_message_text(
+            "❓ *AJUDA*\n\n"
+            "🛒 *Comprar produto*\n"
+            "Escolha um produto no catálogo "
+            "e clique em Comprar.\n\n"
+            "💳 *Adicionar saldo*\n"
+            "Escolha o valor, informe seu CPF "
+            "ou CNPJ e o bot irá gerar um PIX.\n\n"
+            "💰 *Saldo*\n"
+            "Veja seu saldo disponível.\n\n"
+            "📱 Após realizar o pagamento PIX, "
+            "clique em Consultar pagamento.",
+            reply_markup=InlineKeyboardMarkup(
+                [
+                    [
+                        InlineKeyboardButton(
+                            "⬅️ Voltar",
+                            callback_data=(
+                                "voltar_menu"
+                            ),
+                        )
+                    ]
+                ]
+            ),
+            parse_mode="Markdown",
+        )
+
+        return
+
+    # =====================================================
+    # AÇÃO DESCONHECIDA
+    # =====================================================
+
+    await query.answer(
+        "❌ Opção não reconhecida.",
+        show_alert=True,
+    )
+
+
+# =========================================================
+# ERRO GLOBAL
+# =========================================================
+
+async def erro_global(
+    update: object,
+    context: ContextTypes.DEFAULT_TYPE,
+):
+
+    print(
+        "ERRO:"
+    )
+
+    print(
+        repr(context.error)
+    )
+
+
+# =========================================================
+# MAIN
+# =========================================================
+
+def main():
+
+    # -----------------------------------------------------
+    # VERIFICAR CONFIGURAÇÃO
+    # -----------------------------------------------------
+
+    verificar_configuracao()
+
+    # -----------------------------------------------------
+    # CRIAR TABELAS
+    # -----------------------------------------------------
+
+    criar_tabelas()
+
+    # -----------------------------------------------------
+    # CRIAR APPLICATION
+    # -----------------------------------------------------
+
+    application = (
+        Application.builder()
+        .token(BOT_TOKEN)
+        .build()
+    )
+
+    # -----------------------------------------------------
+    # /START
+    # -----------------------------------------------------
+
+    application.add_handler(
+        CommandHandler(
+            "start",
+            start,
+        )
+    )
+
+    # -----------------------------------------------------
+    # BOTÕES
+    # -----------------------------------------------------
+
+    application.add_handler(
+        CallbackQueryHandler(
+            botoes
+        )
+    )
+
+    # -----------------------------------------------------
+    # MENSAGENS DE TEXTO
+    # -----------------------------------------------------
+
+    application.add_handler(
+        MessageHandler(
+            filters.TEXT
+            & ~filters.COMMAND,
+            processar_mensagem_texto,
+        )
+    )
+
+    # -----------------------------------------------------
+    # ERROS
+    # -----------------------------------------------------
+
+    application.add_error_handler(
+        erro_global
+    )
+
+    # -----------------------------------------------------
+    # INICIAR BOT
+    # -----------------------------------------------------
+
+    print(
+        "🤖 PLAYER STORE iniciado!"
+    )
+
+    application.run_polling(
+        drop_pending_updates=True
+    )
+
+
+# =========================================================
+# EXECUTAR
+# =========================================================
+
+if __name__ == "__main__":
+    main()
