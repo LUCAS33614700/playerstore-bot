@@ -1,7 +1,14 @@
+import asyncio
+import base64
+import binascii
+import io
+
+
 from telegram import (
     Update,
     InlineKeyboardButton,
     InlineKeyboardMarkup,
+    CopyTextButton,
 )
 
 from telegram.ext import (
@@ -13,11 +20,13 @@ from telegram.ext import (
     filters,
 )
 
+
 from config import (
     BOT_TOKEN,
     verificar_configuracao,
     GRUPO_CLIENTES,
 )
+
 
 from database import (
     criar_tabelas,
@@ -30,19 +39,37 @@ from database import (
     criar_pagamento,
     consultar_pagamento,
     atualizar_status_pagamento,
+    listar_pagamentos_pendentes,
+    processar_pagamento_pago,
 )
 
-from menu import menu_principal
+
+from menu import (
+    menu_principal
+)
+
 
 from catalogo import (
     menu_catalogo,
     buscar_produto,
 )
 
+
 from pushinpay import (
     criar_pix,
     consultar_pix,
 )
+
+
+# =========================================================
+# CONFIGURAÇÕES DO PAGAMENTO
+# =========================================================
+
+VALOR_MINIMO = 5.00
+
+VALOR_MAXIMO = 499.00
+
+INTERVALO_VERIFICACAO = 5
 
 
 # =========================================================
@@ -226,7 +253,7 @@ async def comprar_produto(
 
 
 # =========================================================
-# PEDIR VALOR DO SALDO
+# PEDIR VALOR
 # =========================================================
 
 async def pedir_valor_saldo(
@@ -244,10 +271,13 @@ async def pedir_valor_saldo(
 
     await query.edit_message_text(
         "💵 *ADICIONAR SALDO*\n\n"
+        "💠 PIX AUTOMÁTICO\n\n"
         "Digite o valor que deseja adicionar.\n\n"
+        f"▫️ Mínimo: R$ {VALOR_MINIMO:.2f}\n"
+        f"▫️ Máximo: R$ {VALOR_MAXIMO:.2f}\n\n"
         "Exemplo:\n"
         "`10`\n"
-        "`25.50`\n"
+        "`25,50`\n"
         "`100`",
         reply_markup=InlineKeyboardMarkup(
             [
@@ -263,6 +293,59 @@ async def pedir_valor_saldo(
         ),
         parse_mode="Markdown",
     )
+
+
+# =========================================================
+# CONVERTER BASE64 DO QR CODE
+# =========================================================
+
+def converter_qr_code_base64(
+    qr_code_base64,
+):
+
+    if not qr_code_base64:
+
+        return None
+
+    try:
+
+        valor = str(
+            qr_code_base64
+        ).strip()
+
+        # Caso venha como:
+        # data:image/png;base64,AAAA...
+        if "," in valor:
+
+            valor = valor.split(
+                ",",
+                1,
+            )[1]
+
+        dados = base64.b64decode(
+            valor,
+            validate=False,
+        )
+
+        if not dados:
+
+            return None
+
+        return io.BytesIO(
+            dados
+        )
+
+    except (
+        ValueError,
+        TypeError,
+        binascii.Error,
+    ):
+
+        print(
+            "QR Code Base64 inválido."
+        )
+
+        return None
 
 
 # =========================================================
@@ -284,12 +367,18 @@ async def processar_valor_saldo(
 
         return
 
-    texto = update.message.text.strip()
+    texto = (
+        update.message.text
+        .strip()
+    )
 
     try:
 
         valor = float(
-            texto.replace(",", ".")
+            texto.replace(
+                ",",
+                ".",
+            )
         )
 
     except ValueError:
@@ -298,25 +387,27 @@ async def processar_valor_saldo(
             "❌ Digite apenas um valor válido.\n\n"
             "Exemplo:\n"
             "`10`\n"
-            "`25.50`\n"
+            "`25,50`\n"
             "`100`",
             parse_mode="Markdown",
         )
 
         return
 
-    if valor < 1:
+    if valor < VALOR_MINIMO:
 
         await update.message.reply_text(
-            "❌ O valor mínimo é R$ 1,00."
+            f"❌ O valor mínimo é "
+            f"R$ {VALOR_MINIMO:.2f}.",
         )
 
         return
 
-    if valor > 10000:
+    if valor > VALOR_MAXIMO:
 
         await update.message.reply_text(
-            "❌ O valor máximo é R$ 10.000,00."
+            f"❌ O valor máximo é "
+            f"R$ {VALOR_MAXIMO:.2f}.",
         )
 
         return
@@ -334,16 +425,21 @@ async def processar_valor_saldo(
         "aguardando_valor"
     ] = False
 
-    usuario = update.effective_user
+    usuario = (
+        update.effective_user
+    )
 
-    mensagem = await update.message.reply_text(
-        "⏳ Gerando seu PIX..."
+    mensagem = (
+        await update.message.reply_text(
+            "⏳ *Gerando seu PIX...*",
+            parse_mode="Markdown",
+        )
     )
 
     try:
 
         # -------------------------------------------------
-        # GERAR PIX PUSHINPAY
+        # CRIAR PIX
         # -------------------------------------------------
 
         pix = criar_pix(
@@ -373,11 +469,11 @@ async def processar_valor_saldo(
 
             raise Exception(
                 "PushinPay não retornou "
-                "o QR Code."
+                "o código PIX."
             )
 
         # -------------------------------------------------
-        # REGISTRAR PAGAMENTO
+        # SALVAR PAGAMENTO
         # -------------------------------------------------
 
         criar_pagamento(
@@ -387,56 +483,92 @@ async def processar_valor_saldo(
         )
 
         # -------------------------------------------------
-        # MONTAR MENSAGEM
+        # TEXTO
         # -------------------------------------------------
 
         texto_pix = (
-            "💳 *PAGAMENTO PIX*\n\n"
-            f"💰 Valor: *R$ {valor:.2f}*\n\n"
-            "📋 *Pix Copia e Cola:*\n\n"
+            "💎 *PIX AUTOMÁTICO*\n\n"
+            "━━━━━━━━━━━━━━━━━━\n"
+            f"💰 *Valor:* R$ {valor:.2f}\n"
+            f"🆔 *ID da compra:* `{transacao_id}`\n"
+            "⏳ *Status:* Aguardando pagamento\n"
+            "━━━━━━━━━━━━━━━━━━\n\n"
+            "📋 *PIX COPIA E COLA*\n\n"
             f"`{qr_code}`\n\n"
-            "👇 Copie o código acima e "
-            "pague pelo seu banco.\n\n"
-            "⏳ Depois do pagamento, "
-            "clique em *Consultar pagamento* "
-            "para confirmar."
+            "⚡ Após o pagamento, "
+            "a confirmação será feita "
+            "automaticamente.\n\n"
+            "💰 O saldo será liberado "
+            "assim que o pagamento for "
+            "confirmado."
         )
 
         # -------------------------------------------------
         # BOTÕES
         # -------------------------------------------------
 
-        botoes = InlineKeyboardMarkup(
+        botoes = [
             [
-                [
-                    InlineKeyboardButton(
-                        "🔄 Consultar pagamento",
-                        callback_data=(
-                            f"consultar_pagamento_"
-                            f"{transacao_id}"
-                        ),
-                    )
-                ],
-                [
-                    InlineKeyboardButton(
-                        "⬅️ Voltar ao menu",
-                        callback_data=(
-                            "voltar_menu"
-                        ),
-                    )
-                ],
-            ]
+                InlineKeyboardButton(
+                    "📋 COPIAR CÓDIGO",
+                    copy_text=CopyTextButton(
+                        text=str(qr_code)
+                    ),
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    "⏰ AGUARDANDO PAGAMENTO",
+                    callback_data=(
+                        "status_pagamento_"
+                        f"{transacao_id}"
+                    ),
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    "⬅️ Voltar ao menu",
+                    callback_data=(
+                        "voltar_menu"
+                    ),
+                )
+            ],
+        ]
+
+        markup = (
+            InlineKeyboardMarkup(
+                botoes
+            )
         )
 
         # -------------------------------------------------
-        # ENVIAR PIX
+        # QR CODE
         # -------------------------------------------------
 
-        await mensagem.edit_text(
-            texto_pix,
-            reply_markup=botoes,
-            parse_mode="Markdown",
+        imagem_qr = (
+            converter_qr_code_base64(
+                qr_code_base64
+            )
         )
+
+        if imagem_qr:
+
+            await mensagem.delete()
+
+            await update.message.reply_photo(
+                photo=imagem_qr,
+                caption=texto_pix,
+                reply_markup=markup,
+                parse_mode="Markdown",
+            )
+
+        else:
+
+            await mensagem.edit_text(
+                texto_pix,
+                reply_markup=markup,
+                parse_mode="Markdown",
+            )
 
     except Exception as erro:
 
@@ -449,8 +581,7 @@ async def processar_valor_saldo(
         )
 
         await mensagem.edit_text(
-            "❌ *Não foi possível gerar "
-            "o PIX.*\n\n"
+            "❌ *Não foi possível gerar o PIX.*\n\n"
             "Ocorreu um erro ao comunicar "
             "com a PushinPay.\n\n"
             "Tente novamente em alguns instantes.",
@@ -480,7 +611,7 @@ async def processar_mensagem_texto(
 
 
 # =========================================================
-# CONSULTAR PAGAMENTO
+# VERIFICAR PAGAMENTO MANUAL
 # =========================================================
 
 async def verificar_pagamento(
@@ -510,17 +641,35 @@ async def verificar_pagamento(
         status_banco = pagamento[4]
 
         # -------------------------------------------------
+        # JÁ PAGO
+        # -------------------------------------------------
+
+        if status_banco == "pago":
+
+            saldo = consultar_saldo(
+                usuario_id
+            )
+
+            await query.answer(
+                "✅ Pagamento já confirmado.",
+                show_alert=True,
+            )
+
+            return
+
+        # -------------------------------------------------
         # CONSULTAR PUSHINPAY
         # -------------------------------------------------
 
-        transacao = consultar_pix(
-            transacao_id
+        transacao = await asyncio.to_thread(
+            consultar_pix,
+            transacao_id,
         )
 
         status = str(
             transacao.get(
                 "status",
-                ""
+                "",
             )
         ).lower()
 
@@ -530,26 +679,18 @@ async def verificar_pagamento(
         )
 
         # -------------------------------------------------
-        # PAGAMENTO CONFIRMADO
+        # PAGO
         # -------------------------------------------------
 
         if status == "paid":
 
-            # -------------------------------------------------
-            # EVITAR DUPLICIDADE
-            # -------------------------------------------------
-
-            if status_banco != "pago":
-
-                atualizar_status_pagamento(
-                    transacao_id,
-                    "pago",
+            resultado = (
+                processar_pagamento_pago(
+                    transacao_id
                 )
+            )
 
-                adicionar_saldo(
-                    usuario_id,
-                    valor,
-                )
+            if resultado:
 
                 saldo = consultar_saldo(
                     usuario_id
@@ -567,24 +708,12 @@ async def verificar_pagamento(
                     parse_mode="Markdown",
                 )
 
-                return
+            else:
 
-            # -------------------------------------------------
-            # JÁ PROCESSADO
-            # -------------------------------------------------
-
-            saldo = consultar_saldo(
-                usuario_id
-            )
-
-            await query.edit_message_text(
-                "✅ *PAGAMENTO JÁ CONFIRMADO*\n\n"
-                f"💰 Valor: R$ {valor:.2f}\n"
-                f"💳 Saldo atual: "
-                f"R$ {saldo:.2f}",
-                reply_markup=menu_principal(),
-                parse_mode="Markdown",
-            )
+                await query.answer(
+                    "✅ Pagamento já processado.",
+                    show_alert=True,
+                )
 
             return
 
@@ -605,21 +734,24 @@ async def verificar_pagamento(
             return
 
         # -------------------------------------------------
-        # CANCELADO
+        # CANCELADO / EXPIRADO
         # -------------------------------------------------
 
-        if status == "canceled":
+        if status in (
+            "canceled",
+            "cancelled",
+            "expired",
+        ):
 
-            if status_banco != "pago":
-
-                atualizar_status_pagamento(
-                    transacao_id,
-                    "cancelado",
-                )
+            atualizar_status_pagamento(
+                transacao_id,
+                "cancelado",
+            )
 
             await query.edit_message_text(
-                "❌ *PAGAMENTO CANCELADO*\n\n"
-                "Nenhum saldo foi adicionado.",
+                "❌ *PAGAMENTO ENCERRADO*\n\n"
+                "A cobrança não foi aprovada.\n\n"
+                "💰 Nenhum saldo foi adicionado.",
                 reply_markup=menu_principal(),
                 parse_mode="Markdown",
             )
@@ -652,6 +784,234 @@ async def verificar_pagamento(
 
 
 # =========================================================
+# VERIFICAÇÃO AUTOMÁTICA
+# =========================================================
+
+async def verificar_pagamentos_automaticamente(
+    context: ContextTypes.DEFAULT_TYPE,
+):
+
+    pagamentos = (
+        listar_pagamentos_pendentes()
+    )
+
+    if not pagamentos:
+
+        return
+
+    print(
+        f"🔎 Verificando "
+        f"{len(pagamentos)} pagamento(s)..."
+    )
+
+    for pagamento in pagamentos:
+
+        try:
+
+            (
+                pagamento_id,
+                usuario_id,
+                valor,
+                transacao_id,
+                status_banco,
+                criado_em,
+            ) = pagamento
+
+            # -------------------------------------------------
+            # CONSULTAR PUSHINPAY
+            # -------------------------------------------------
+
+            transacao = (
+                await asyncio.to_thread(
+                    consultar_pix,
+                    transacao_id,
+                )
+            )
+
+            status = str(
+                transacao.get(
+                    "status",
+                    "",
+                )
+            ).lower()
+
+            print(
+                f"PIX {transacao_id}: "
+                f"{status}"
+            )
+
+            # -------------------------------------------------
+            # PAGO
+            # -------------------------------------------------
+
+            if status == "paid":
+
+                resultado = (
+                    processar_pagamento_pago(
+                        transacao_id
+                    )
+                )
+
+                # Se None, já foi processado
+                if not resultado:
+
+                    continue
+
+                novo_saldo = (
+                    consultar_saldo(
+                        usuario_id
+                    )
+                )
+
+                try:
+
+                    await context.bot.send_message(
+                        chat_id=usuario_id,
+                        text=(
+                            "✅ *PAGAMENTO APROVADO!*\n\n"
+                            "━━━━━━━━━━━━━━━━━━\n"
+                            f"💰 Valor: "
+                            f"R$ {float(valor):.2f}\n"
+                            f"🆔 ID: `{transacao_id}`\n"
+                            "━━━━━━━━━━━━━━━━━━\n\n"
+                            f"💳 *Novo saldo:* "
+                            f"R$ {novo_saldo:.2f}\n\n"
+                            "🎉 Seu saldo foi liberado "
+                            "automaticamente!"
+                        ),
+                        reply_markup=menu_principal(),
+                        parse_mode="Markdown",
+                    )
+
+                except Exception as erro_envio:
+
+                    print(
+                        "ERRO AO ENVIAR "
+                        "CONFIRMAÇÃO:"
+                    )
+
+                    print(
+                        repr(erro_envio)
+                    )
+
+                continue
+
+            # -------------------------------------------------
+            # CANCELADO / EXPIRADO
+            # -------------------------------------------------
+
+            if status in (
+                "canceled",
+                "cancelled",
+                "expired",
+            ):
+
+                atualizado = (
+                    atualizar_status_pagamento(
+                        transacao_id,
+                        "cancelado",
+                    )
+                )
+
+                if atualizado:
+
+                    try:
+
+                        await context.bot.send_message(
+                            chat_id=usuario_id,
+                            text=(
+                                "❌ *PAGAMENTO ENCERRADO*\n\n"
+                                f"💰 Valor: "
+                                f"R$ {float(valor):.2f}\n\n"
+                                "A cobrança PIX foi "
+                                "cancelada ou expirou.\n\n"
+                                "💳 Nenhum saldo foi "
+                                "adicionado."
+                            ),
+                            reply_markup=menu_principal(),
+                            parse_mode="Markdown",
+                        )
+
+                    except Exception as erro_envio:
+
+                        print(
+                            "ERRO AO ENVIAR "
+                            "CANCELAMENTO:"
+                        )
+
+                        print(
+                            repr(erro_envio)
+                        )
+
+        except Exception as erro:
+
+            print(
+                "ERRO NA VERIFICAÇÃO "
+                f"DO PIX {pagamento[3]}:"
+            )
+
+            print(
+                repr(erro)
+            )
+
+
+# =========================================================
+# STATUS DO PAGAMENTO
+# =========================================================
+
+async def mostrar_status_pagamento(
+    query,
+    transacao_id,
+):
+
+    pagamento = (
+        consultar_pagamento(
+            transacao_id
+        )
+    )
+
+    if not pagamento:
+
+        await query.answer(
+            "❌ Pagamento não encontrado.",
+            show_alert=True,
+        )
+
+        return
+
+    status = pagamento[4]
+
+    if status == "pago":
+
+        saldo = consultar_saldo(
+            pagamento[1]
+        )
+
+        await query.answer(
+            f"✅ Pago!\n"
+            f"Saldo: R$ {saldo:.2f}",
+            show_alert=True,
+        )
+
+        return
+
+    if status == "cancelado":
+
+        await query.answer(
+            "❌ Esta cobrança foi encerrada.",
+            show_alert=True,
+        )
+
+        return
+
+    await query.answer(
+        "⏰ Ainda aguardando o pagamento.\n\n"
+        "O bot verifica automaticamente.",
+        show_alert=True,
+    )
+
+
+# =========================================================
 # BOTÕES
 # =========================================================
 
@@ -664,12 +1024,38 @@ async def botoes(
 
     await query.answer()
 
-    usuario_id = query.from_user.id
+    usuario_id = (
+        query.from_user.id
+    )
 
     acao = query.data
 
     # =====================================================
+    # STATUS PAGAMENTO
+    # =====================================================
+
+    if acao.startswith(
+        "status_pagamento_"
+    ):
+
+        transacao_id = (
+            acao.replace(
+                "status_pagamento_",
+                "",
+                1,
+            )
+        )
+
+        await mostrar_status_pagamento(
+            query,
+            transacao_id,
+        )
+
+        return
+
+    # =====================================================
     # CONSULTAR PAGAMENTO
+    # Mantido para compatibilidade
     # =====================================================
 
     if acao.startswith(
@@ -877,7 +1263,7 @@ async def botoes(
         return
 
     # =====================================================
-    # VOLTAR AO MENU
+    # VOLTAR
     # =====================================================
 
     if acao == "voltar_menu":
@@ -905,23 +1291,25 @@ async def botoes(
 
     if acao == "grupo":
 
-        botoes_grupo = InlineKeyboardMarkup(
-            [
+        botoes_grupo = (
+            InlineKeyboardMarkup(
                 [
-                    InlineKeyboardButton(
-                        "👥 Entrar no grupo",
-                        url=GRUPO_CLIENTES,
-                    )
-                ],
-                [
-                    InlineKeyboardButton(
-                        "⬅️ Voltar",
-                        callback_data=(
-                            "voltar_menu"
-                        ),
-                    )
-                ],
-            ]
+                    [
+                        InlineKeyboardButton(
+                            "👥 Entrar no grupo",
+                            url=GRUPO_CLIENTES,
+                        )
+                    ],
+                    [
+                        InlineKeyboardButton(
+                            "⬅️ Voltar",
+                            callback_data=(
+                                "voltar_menu"
+                            ),
+                        )
+                    ],
+                ]
+            )
         )
 
         await query.edit_message_text(
@@ -1003,8 +1391,12 @@ async def botoes(
             "gerar um PIX automaticamente.\n\n"
             "💰 *Saldo*\n"
             "Veja seu saldo disponível.\n\n"
-            "📱 Após realizar o pagamento PIX, "
-            "clique em Consultar pagamento.",
+            "⚡ *Pagamento automático*\n"
+            "Depois de pagar o PIX, "
+            "não é necessário enviar comprovante "
+            "nem ficar consultando manualmente.\n\n"
+            "🤖 O sistema verifica "
+            "automaticamente a confirmação.",
             reply_markup=InlineKeyboardMarkup(
                 [
                     [
@@ -1023,12 +1415,39 @@ async def botoes(
         return
 
     # =====================================================
-    # AÇÃO DESCONHECIDA
+    # DESCONHECIDO
     # =====================================================
 
     await query.answer(
         "❌ Opção não reconhecida.",
         show_alert=True,
+    )
+
+
+# =========================================================
+# INICIALIZAÇÃO DA VERIFICAÇÃO AUTOMÁTICA
+# =========================================================
+
+async def iniciar_verificador(
+    application,
+):
+
+    if application.job_queue is None:
+
+        raise RuntimeError(
+            "JobQueue não está disponível. "
+            "Instale python-telegram-bot[job-queue]."
+        )
+
+    application.job_queue.run_repeating(
+        verificar_pagamentos_automaticamente,
+        interval=INTERVALO_VERIFICACAO,
+        first=INTERVALO_VERIFICACAO,
+        name="verificador_pagamentos",
+    )
+
+    print(
+        "💳 Verificador automático de PIX iniciado."
     )
 
 
@@ -1057,29 +1476,32 @@ async def erro_global(
 def main():
 
     # -----------------------------------------------------
-    # VERIFICAR CONFIGURAÇÃO
+    # CONFIGURAÇÃO
     # -----------------------------------------------------
 
     verificar_configuracao()
 
     # -----------------------------------------------------
-    # CRIAR TABELAS
+    # BANCO
     # -----------------------------------------------------
 
     criar_tabelas()
 
     # -----------------------------------------------------
-    # CRIAR APPLICATION
+    # APPLICATION
     # -----------------------------------------------------
 
     application = (
         Application.builder()
         .token(BOT_TOKEN)
+        .post_init(
+            iniciar_verificador
+        )
         .build()
     )
 
     # -----------------------------------------------------
-    # /START
+    # START
     # -----------------------------------------------------
 
     application.add_handler(
@@ -1100,7 +1522,7 @@ def main():
     )
 
     # -----------------------------------------------------
-    # MENSAGENS DE TEXTO
+    # TEXTO
     # -----------------------------------------------------
 
     application.add_handler(
@@ -1120,7 +1542,7 @@ def main():
     )
 
     # -----------------------------------------------------
-    # INICIAR BOT
+    # INICIAR
     # -----------------------------------------------------
 
     print(
@@ -1137,4 +1559,5 @@ def main():
 # =========================================================
 
 if __name__ == "__main__":
+
     main()
