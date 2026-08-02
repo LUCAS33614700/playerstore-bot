@@ -11,6 +11,7 @@ from telegram import (
     CopyTextButton,
 )
 
+
 from telegram.ext import (
     Application,
     CommandHandler,
@@ -97,6 +98,10 @@ async def start(
         "valor_saldo"
     ] = None
 
+    context.user_data[
+        "quantidade_produto"
+    ] = None
+
     texto = (
         f"👋 Olá, {usuario.first_name}!\n\n"
         "🛒 Bem-vindo à PLAYER STORE!\n\n"
@@ -117,6 +122,7 @@ async def comprar_produto(
     query,
     produto_id,
     usuario_id,
+    quantidade=1,
 ):
 
     produto = buscar_produto(
@@ -140,33 +146,69 @@ async def comprar_produto(
         estoque,
     ) = produto
 
-    if estoque <= 0:
+    preco = float(preco)
+    estoque = int(estoque)
+
+    quantidade = int(
+        quantidade
+    )
+
+    if quantidade <= 0:
 
         await query.answer(
-            "📦 Produto sem estoque.",
+            "❌ Quantidade inválida.",
             show_alert=True,
         )
 
         return
+
+    # -----------------------------------------------------
+    # VERIFICAR ESTOQUE
+    # -----------------------------------------------------
+
+    if estoque < quantidade:
+
+        await query.answer(
+            f"❌ Estoque insuficiente.\n\n"
+            f"📦 Disponível: {estoque}\n"
+            f"🛒 Solicitado: {quantidade}",
+            show_alert=True,
+        )
+
+        return
+
+    valor_total = (
+        preco * quantidade
+    )
+
+    # -----------------------------------------------------
+    # VERIFICAR SALDO
+    # -----------------------------------------------------
 
     saldo = consultar_saldo(
         usuario_id
     )
 
-    if saldo < preco:
+    if saldo < valor_total:
 
         await query.answer(
             f"❌ Saldo insuficiente.\n\n"
-            f"Seu saldo: R$ {saldo:.2f}\n"
-            f"Preço: R$ {preco:.2f}",
+            f"💰 Seu saldo: R$ {saldo:.2f}\n"
+            f"🛒 Total: R$ {valor_total:.2f}\n\n"
+            f"💵 Faltam: "
+            f"R$ {valor_total - saldo:.2f}",
             show_alert=True,
         )
 
         return
 
+    # -----------------------------------------------------
+    # RETIRAR SALDO
+    # -----------------------------------------------------
+
     sucesso = retirar_saldo(
         usuario_id,
-        preco,
+        valor_total,
     )
 
     if not sucesso:
@@ -181,75 +223,433 @@ async def comprar_produto(
     conn = conectar()
     cursor = conn.cursor()
 
-    cursor.execute(
-        """
-        UPDATE produtos
-        SET estoque = estoque - 1
-        WHERE id = ?
-        AND estoque > 0
-        """,
-        (
-            produto_id,
-        ),
-    )
+    try:
 
-    estoque_atualizado = (
-        cursor.rowcount > 0
-    )
+        # -------------------------------------------------
+        # ATUALIZAR ESTOQUE
+        # -------------------------------------------------
 
-    if not estoque_atualizado:
+        cursor.execute(
+            """
+            UPDATE produtos
+            SET estoque = estoque - ?
+            WHERE id = ?
+            AND estoque >= ?
+            """,
+            (
+                quantidade,
+                produto_id,
+                quantidade,
+            ),
+        )
+
+        estoque_atualizado = (
+            cursor.rowcount > 0
+        )
+
+        if not estoque_atualizado:
+
+            conn.rollback()
+            conn.close()
+
+            adicionar_saldo(
+                usuario_id,
+                valor_total,
+            )
+
+            await query.answer(
+                "❌ O estoque mudou. "
+                "Tente novamente.",
+                show_alert=True,
+            )
+
+            return
+
+        # -------------------------------------------------
+        # REGISTRAR PEDIDO
+        # -------------------------------------------------
+
+        cursor.execute(
+            """
+            INSERT INTO pedidos
+            (
+                usuario_id,
+                produto_id,
+                quantidade,
+                valor,
+                status
+            )
+            VALUES (?, ?, ?, ?, 'pago')
+            """,
+            (
+                usuario_id,
+                produto_id,
+                quantidade,
+                valor_total,
+            ),
+        )
+
+        conn.commit()
+
+    except Exception as erro:
 
         conn.rollback()
+
         conn.close()
 
         adicionar_saldo(
             usuario_id,
-            preco,
+            valor_total,
+        )
+
+        print(
+            "ERRO AO REGISTRAR COMPRA:"
+        )
+
+        print(
+            repr(erro)
         )
 
         await query.answer(
-            "❌ O produto ficou sem estoque.",
+            "❌ Erro ao finalizar a compra.",
             show_alert=True,
         )
 
         return
 
-    cursor.execute(
-        """
-        INSERT INTO pedidos
-        (
-            usuario_id,
-            produto_id,
-            quantidade,
-            valor,
-            status
-        )
-        VALUES (?, ?, 1, ?, 'pago')
-        """,
-        (
-            usuario_id,
-            produto_id,
-            preco,
-        ),
-    )
-
-    conn.commit()
     conn.close()
+
+    # -----------------------------------------------------
+    # NOVO SALDO
+    # -----------------------------------------------------
 
     novo_saldo = consultar_saldo(
         usuario_id
     )
 
-    await query.edit_message_text(
-        f"✅ *Compra realizada!*\n\n"
-        f"🛒 Produto: {nome}\n"
-        f"💰 Valor: R$ {preco:.2f}\n"
-        f"💳 Saldo restante: "
+    # -----------------------------------------------------
+    # COMPRA
+    # -----------------------------------------------------
+
+    texto = (
+        "✅ *COMPRA REALIZADA!*\n\n"
+        "━━━━━━━━━━━━━━━━━━\n"
+        f"🛒 *Produto:* {nome}\n"
+        f"📦 *Quantidade:* {quantidade}\n"
+        f"💰 *Preço unitário:* R$ {preco:.2f}\n"
+        f"💵 *Total:* R$ {valor_total:.2f}\n"
+        "━━━━━━━━━━━━━━━━━━\n\n"
+        f"💳 *Saldo restante:* "
         f"R$ {novo_saldo:.2f}\n\n"
-        "📦 Seu pedido foi registrado.",
-        reply_markup=menu_principal(),
+        "📦 Seu pedido foi registrado."
+    )
+
+    botoes = InlineKeyboardMarkup(
+        [
+            [
+                InlineKeyboardButton(
+                    "🛒 Comprar novamente",
+                    callback_data=(
+                        f"produto_{produto_id}"
+                    ),
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    "🛒 Ver catálogo",
+                    callback_data="catalogo",
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    "↩️ Voltar ao menu",
+                    callback_data="voltar_menu",
+                )
+            ],
+        ]
+    )
+
+    await query.edit_message_text(
+        texto,
+        reply_markup=botoes,
         parse_mode="Markdown",
     )
+
+
+# =========================================================
+# PEDIR QUANTIDADE
+# =========================================================
+
+async def pedir_quantidade_produto(
+    query,
+    context,
+    produto_id,
+):
+
+    produto = buscar_produto(
+        produto_id
+    )
+
+    if not produto:
+
+        await query.answer(
+            "❌ Produto não encontrado.",
+            show_alert=True,
+        )
+
+        return
+
+    (
+        _,
+        nome,
+        descricao,
+        preco,
+        estoque,
+    ) = produto
+
+    estoque = int(
+        estoque
+    )
+
+    if estoque <= 0:
+
+        await query.answer(
+            "📦 Produto sem estoque.",
+            show_alert=True,
+        )
+
+        return
+
+    context.user_data[
+        "aguardando_quantidade"
+    ] = True
+
+    context.user_data[
+        "produto_quantidade_id"
+    ] = produto_id
+
+    await query.edit_message_text(
+        "🛍️ *COMPRAR EM QUANTIDADE*\n\n"
+        f"🛒 *Produto:* {nome}\n"
+        f"💰 *Preço unitário:* R$ {float(preco):.2f}\n"
+        f"📦 *Disponível:* {estoque}\n\n"
+        "Digite a quantidade que deseja comprar.\n\n"
+        "Exemplo:\n"
+        "`1`\n"
+        "`2`\n"
+        "`5`",
+        reply_markup=InlineKeyboardMarkup(
+            [
+                [
+                    InlineKeyboardButton(
+                        "⬅️ Voltar",
+                        callback_data=(
+                            f"produto_{produto_id}"
+                        ),
+                    )
+                ],
+                [
+                    InlineKeyboardButton(
+                        "↩️ Voltar ao menu",
+                        callback_data=(
+                            "voltar_menu"
+                        ),
+                    )
+                ],
+            ]
+        ),
+        parse_mode="Markdown",
+    )
+
+
+# =========================================================
+# PROCESSAR QUANTIDADE
+# =========================================================
+
+async def processar_quantidade_produto(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+):
+
+    if not context.user_data.get(
+        "aguardando_quantidade"
+    ):
+
+        return False
+
+    if not update.message:
+
+        return True
+
+    produto_id = context.user_data.get(
+        "produto_quantidade_id"
+    )
+
+    if not produto_id:
+
+        context.user_data[
+            "aguardando_quantidade"
+        ] = False
+
+        return True
+
+    texto = (
+        update.message.text
+        .strip()
+    )
+
+    try:
+
+        quantidade = int(
+            texto
+        )
+
+    except ValueError:
+
+        await update.message.reply_text(
+            "❌ Digite somente um número inteiro.\n\n"
+            "Exemplo: `2`",
+            parse_mode="Markdown",
+        )
+
+        return True
+
+    if quantidade <= 0:
+
+        await update.message.reply_text(
+            "❌ A quantidade deve ser maior que zero."
+        )
+
+        return True
+
+    produto = buscar_produto(
+        produto_id
+    )
+
+    if not produto:
+
+        context.user_data[
+            "aguardando_quantidade"
+        ] = False
+
+        await update.message.reply_text(
+            "❌ Produto não encontrado."
+        )
+
+        return True
+
+    (
+        _,
+        nome,
+        descricao,
+        preco,
+        estoque,
+    ) = produto
+
+    preco = float(
+        preco
+    )
+
+    estoque = int(
+        estoque
+    )
+
+    if quantidade > estoque:
+
+        await update.message.reply_text(
+            f"❌ Quantidade indisponível.\n\n"
+            f"📦 Estoque disponível: {estoque}\n"
+            f"🛒 Você pediu: {quantidade}"
+        )
+
+        return True
+
+    valor_total = (
+        preco * quantidade
+    )
+
+    saldo = consultar_saldo(
+        update.effective_user.id
+    )
+
+    if saldo < valor_total:
+
+        await update.message.reply_text(
+            f"❌ Saldo insuficiente.\n\n"
+            f"💳 Seu saldo: R$ {saldo:.2f}\n"
+            f"💰 Total: R$ {valor_total:.2f}\n\n"
+            f"💵 Faltam: "
+            f"R$ {valor_total - saldo:.2f}",
+        )
+
+        return True
+
+    context.user_data[
+        "aguardando_quantidade"
+    ] = False
+
+    context.user_data[
+        "quantidade_produto"
+    ] = quantidade
+
+    # -----------------------------------------------------
+    # CONFIRMAÇÃO
+    # -----------------------------------------------------
+
+    texto = (
+        "🛒 *CONFIRMAR COMPRA*\n\n"
+        "━━━━━━━━━━━━━━━━━━\n"
+        f"🛍️ *Produto:* {nome}\n"
+        f"📦 *Quantidade:* {quantidade}\n"
+        f"💰 *Preço unitário:* R$ {preco:.2f}\n"
+        f"💵 *Total:* R$ {valor_total:.2f}\n"
+        "━━━━━━━━━━━━━━━━━━\n\n"
+        f"💳 *Seu saldo:* R$ {saldo:.2f}\n"
+        f"💳 *Saldo após compra:* "
+        f"R$ {saldo - valor_total:.2f}\n\n"
+        "⚡ *Entrega imediata*\n"
+        "❌ Sem reembolso em Pix\n"
+        "👩🏻‍💻 Suporte completo"
+    )
+
+    botoes = InlineKeyboardMarkup(
+        [
+            [
+                InlineKeyboardButton(
+                    "✅ CONFIRMAR COMPRA",
+                    callback_data=(
+                        f"confirmar_compra_"
+                        f"{produto_id}_"
+                        f"{quantidade}"
+                    ),
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    "⬅️ Voltar ao produto",
+                    callback_data=(
+                        f"produto_{produto_id}"
+                    ),
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    "↩️ Voltar ao menu",
+                    callback_data=(
+                        "voltar_menu"
+                    ),
+                )
+            ],
+        ]
+    )
+
+    await update.message.reply_text(
+        texto,
+        reply_markup=botoes,
+        parse_mode="Markdown",
+    )
+
+    return True
 
 
 # =========================================================
@@ -268,6 +668,10 @@ async def pedir_valor_saldo(
     context.user_data[
         "valor_saldo"
     ] = None
+
+    context.user_data[
+        "aguardando_quantidade"
+    ] = False
 
     await query.edit_message_text(
         "💵 *ADICIONAR SALDO*\n\n"
@@ -313,8 +717,6 @@ def converter_qr_code_base64(
             qr_code_base64
         ).strip()
 
-        # Caso venha como:
-        # data:image/png;base64,AAAA...
         if "," in valor:
 
             valor = valor.split(
@@ -438,10 +840,6 @@ async def processar_valor_saldo(
 
     try:
 
-        # -------------------------------------------------
-        # CRIAR PIX
-        # -------------------------------------------------
-
         pix = criar_pix(
             valor=valor
         )
@@ -472,19 +870,11 @@ async def processar_valor_saldo(
                 "o código PIX."
             )
 
-        # -------------------------------------------------
-        # SALVAR PAGAMENTO
-        # -------------------------------------------------
-
         criar_pagamento(
             usuario.id,
             valor,
             transacao_id,
         )
-
-        # -------------------------------------------------
-        # TEXTO
-        # -------------------------------------------------
 
         texto_pix = (
             "💎 *PIX AUTOMÁTICO*\n\n"
@@ -502,10 +892,6 @@ async def processar_valor_saldo(
             "assim que o pagamento for "
             "confirmado."
         )
-
-        # -------------------------------------------------
-        # BOTÕES
-        # -------------------------------------------------
 
         botoes = [
             [
@@ -540,10 +926,6 @@ async def processar_valor_saldo(
                 botoes
             )
         )
-
-        # -------------------------------------------------
-        # QR CODE
-        # -------------------------------------------------
 
         imagem_qr = (
             converter_qr_code_base64(
@@ -599,6 +981,17 @@ async def processar_mensagem_texto(
 ):
 
     if context.user_data.get(
+        "aguardando_quantidade"
+    ):
+
+        await processar_quantidade_produto(
+            update,
+            context,
+        )
+
+        return
+
+    if context.user_data.get(
         "aguardando_valor"
     ):
 
@@ -640,10 +1033,6 @@ async def verificar_pagamento(
         valor = pagamento[2]
         status_banco = pagamento[4]
 
-        # -------------------------------------------------
-        # JÁ PAGO
-        # -------------------------------------------------
-
         if status_banco == "pago":
 
             saldo = consultar_saldo(
@@ -656,10 +1045,6 @@ async def verificar_pagamento(
             )
 
             return
-
-        # -------------------------------------------------
-        # CONSULTAR PUSHINPAY
-        # -------------------------------------------------
 
         transacao = await asyncio.to_thread(
             consultar_pix,
@@ -677,10 +1062,6 @@ async def verificar_pagamento(
             f"Pagamento {transacao_id}: "
             f"{status}"
         )
-
-        # -------------------------------------------------
-        # PAGO
-        # -------------------------------------------------
 
         if status == "paid":
 
@@ -717,10 +1098,6 @@ async def verificar_pagamento(
 
             return
 
-        # -------------------------------------------------
-        # PENDENTE
-        # -------------------------------------------------
-
         if status in (
             "created",
             "pending",
@@ -732,10 +1109,6 @@ async def verificar_pagamento(
             )
 
             return
-
-        # -------------------------------------------------
-        # CANCELADO / EXPIRADO
-        # -------------------------------------------------
 
         if status in (
             "canceled",
@@ -757,10 +1130,6 @@ async def verificar_pagamento(
             )
 
             return
-
-        # -------------------------------------------------
-        # OUTRO STATUS
-        # -------------------------------------------------
 
         await query.answer(
             f"Status atual: {status}",
@@ -817,10 +1186,6 @@ async def verificar_pagamentos_automaticamente(
                 criado_em,
             ) = pagamento
 
-            # -------------------------------------------------
-            # CONSULTAR PUSHINPAY
-            # -------------------------------------------------
-
             transacao = (
                 await asyncio.to_thread(
                     consultar_pix,
@@ -840,10 +1205,6 @@ async def verificar_pagamentos_automaticamente(
                 f"{status}"
             )
 
-            # -------------------------------------------------
-            # PAGO
-            # -------------------------------------------------
-
             if status == "paid":
 
                 resultado = (
@@ -852,7 +1213,6 @@ async def verificar_pagamentos_automaticamente(
                     )
                 )
 
-                # Se None, já foi processado
                 if not resultado:
 
                     continue
@@ -895,10 +1255,6 @@ async def verificar_pagamentos_automaticamente(
                     )
 
                 continue
-
-            # -------------------------------------------------
-            # CANCELADO / EXPIRADO
-            # -------------------------------------------------
 
             if status in (
                 "canceled",
@@ -1055,7 +1411,6 @@ async def botoes(
 
     # =====================================================
     # CONSULTAR PAGAMENTO
-    # Mantido para compatibilidade
     # =====================================================
 
     if acao.startswith(
@@ -1082,6 +1437,10 @@ async def botoes(
     # =====================================================
 
     if acao == "catalogo":
+
+        context.user_data[
+            "aguardando_quantidade"
+        ] = False
 
         await query.edit_message_text(
             "🛒 *LOGINS | CONTAS PREMIUM*\n\n"
@@ -1139,17 +1498,45 @@ async def botoes(
             estoque,
         ) = produto
 
+        preco = float(
+            preco
+        )
+
+        estoque = int(
+            estoque
+        )
+
+        if estoque <= 0:
+
+            await query.answer(
+                "📦 Produto sem estoque.",
+                show_alert=True,
+            )
+
+            return
+
+        saldo = consultar_saldo(
+            usuario_id
+        )
+
         texto = (
-            f"🛒 *{nome}*\n\n"
+            "🛒 *FINALIZAR COMPRA*\n\n"
+            "━━━━━━━━━━━━━━━━━━\n"
+            f"🛍️ *Serviço:* {nome}\n"
+            f"💰 *Preço:* R$ {preco:.2f}\n"
+            f"💳 *Seu saldo:* R$ {saldo:.2f}\n"
+            f"📦 *Disponível:* {estoque}\n"
+            "━━━━━━━━━━━━━━━━━━\n\n"
             f"📝 {descricao or 'Sem descrição'}\n\n"
-            f"💰 Preço: R$ {preco:.2f}\n"
-            f"📦 Estoque: {estoque}"
+            "⚡ *Entrega imediata*\n"
+            "❌ *Sem reembolso em Pix*\n"
+            "👩🏻‍💻 *Suporte completo*"
         )
 
         botoes_compra = [
             [
                 InlineKeyboardButton(
-                    "🛒 Comprar",
+                    "🛒 COMPRAR",
                     callback_data=(
                         f"comprar_{produto_id}"
                     ),
@@ -1157,8 +1544,30 @@ async def botoes(
             ],
             [
                 InlineKeyboardButton(
-                    "⬅️ Voltar",
+                    "🛍️ COMPRAR EM QUANTIDADE",
+                    callback_data=(
+                        f"quantidade_{produto_id}"
+                    ),
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    "💵 ADICIONAR SALDO",
+                    callback_data=(
+                        "adicionar_saldo"
+                    ),
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    "⬅️ VOLTAR À CATEGORIA",
                     callback_data="catalogo",
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    "↩️ VOLTAR AO MENU",
+                    callback_data="voltar_menu",
                 )
             ],
         ]
@@ -1170,6 +1579,85 @@ async def botoes(
             ),
             parse_mode="Markdown",
         )
+
+        return
+
+    # =====================================================
+    # COMPRAR EM QUANTIDADE
+    # =====================================================
+
+    if acao.startswith(
+        "quantidade_"
+    ):
+
+        try:
+
+            produto_id = int(
+                acao.split("_")[1]
+            )
+
+        except (
+            ValueError,
+            IndexError,
+        ):
+
+            await query.answer(
+                "❌ Produto inválido.",
+                show_alert=True,
+            )
+
+            return
+
+        await pedir_quantidade_produto(
+            query,
+            context,
+            produto_id,
+        )
+
+        return
+
+    # =====================================================
+    # CONFIRMAR COMPRA EM QUANTIDADE
+    # =====================================================
+
+    if acao.startswith(
+        "confirmar_compra_"
+    ):
+
+        partes = acao.split("_")
+
+        try:
+
+            produto_id = int(
+                partes[2]
+            )
+
+            quantidade = int(
+                partes[3]
+            )
+
+        except (
+            ValueError,
+            IndexError,
+        ):
+
+            await query.answer(
+                "❌ Compra inválida.",
+                show_alert=True,
+            )
+
+            return
+
+        await comprar_produto(
+            query,
+            produto_id,
+            usuario_id,
+            quantidade,
+        )
+
+        context.user_data[
+            "quantidade_produto"
+        ] = None
 
         return
 
@@ -1203,6 +1691,7 @@ async def botoes(
             query,
             produto_id,
             usuario_id,
+            1,
         )
 
         return
@@ -1274,6 +1763,18 @@ async def botoes(
 
         context.user_data[
             "valor_saldo"
+        ] = None
+
+        context.user_data[
+            "aguardando_quantidade"
+        ] = False
+
+        context.user_data[
+            "produto_quantidade_id"
+        ] = None
+
+        context.user_data[
+            "quantidade_produto"
         ] = None
 
         await query.edit_message_text(
@@ -1386,6 +1887,9 @@ async def botoes(
             "🛒 *Comprar produto*\n"
             "Escolha um produto no catálogo "
             "e clique em Comprar.\n\n"
+            "🛍️ *Comprar em quantidade*\n"
+            "Escolha a quantidade desejada "
+            "e confirme a compra.\n\n"
             "💳 *Adicionar saldo*\n"
             "Escolha o valor e o bot irá "
             "gerar um PIX automaticamente.\n\n"
@@ -1410,6 +1914,19 @@ async def botoes(
                 ]
             ),
             parse_mode="Markdown",
+        )
+
+        return
+
+    # =====================================================
+    # ESTOQUE VAZIO
+    # =====================================================
+
+    if acao == "sem_estoque":
+
+        await query.answer(
+            "📦 No momento não há produtos disponíveis.",
+            show_alert=True,
         )
 
         return
@@ -1475,21 +1992,9 @@ async def erro_global(
 
 def main():
 
-    # -----------------------------------------------------
-    # CONFIGURAÇÃO
-    # -----------------------------------------------------
-
     verificar_configuracao()
 
-    # -----------------------------------------------------
-    # BANCO
-    # -----------------------------------------------------
-
     criar_tabelas()
-
-    # -----------------------------------------------------
-    # APPLICATION
-    # -----------------------------------------------------
 
     application = (
         Application.builder()
@@ -1500,10 +2005,6 @@ def main():
         .build()
     )
 
-    # -----------------------------------------------------
-    # START
-    # -----------------------------------------------------
-
     application.add_handler(
         CommandHandler(
             "start",
@@ -1511,19 +2012,11 @@ def main():
         )
     )
 
-    # -----------------------------------------------------
-    # BOTÕES
-    # -----------------------------------------------------
-
     application.add_handler(
         CallbackQueryHandler(
             botoes
         )
     )
-
-    # -----------------------------------------------------
-    # TEXTO
-    # -----------------------------------------------------
 
     application.add_handler(
         MessageHandler(
@@ -1533,17 +2026,9 @@ def main():
         )
     )
 
-    # -----------------------------------------------------
-    # ERROS
-    # -----------------------------------------------------
-
     application.add_error_handler(
         erro_global
     )
-
-    # -----------------------------------------------------
-    # INICIAR
-    # -----------------------------------------------------
 
     print(
         "🤖 PLAYER STORE iniciado!"
