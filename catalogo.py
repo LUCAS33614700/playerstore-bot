@@ -1,5 +1,4 @@
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
-
 from database import conectar
 
 
@@ -7,66 +6,49 @@ from database import conectar
 # PRODUTOS PADRÃO
 # =========================================================
 #
-# Os produtos abaixo serão cadastrados automaticamente
-# caso ainda não existam no banco de dados.
+# Estes produtos serão cadastrados automaticamente
+# caso ainda não existam no banco.
 #
-# estoque = quantidade disponível
-#
-# Você pode alterar nome, descrição, preço e estoque aqui.
+# Para alterar preço ou estoque posteriormente,
+# use o sistema de estoque/admin.
 # =========================================================
 
 PRODUTOS_PADRAO = [
 
     {
         "nome": "📺 TELA DISNEY PADRÃO COM ANUNCIO",
-        "descricao": (
-            "Disney+ padrão com anúncio\n"
-            "Duração: 30 dias"
-        ),
+        "descricao": "Acesso Disney+ - duração de 30 dias.",
         "preco": 3.00,
-        "estoque": 100,
+        "estoque": 0,
     },
 
     {
         "nome": "📺 TELA GLOBO PLAY + CANAIS + TELECINE",
-        "descricao": (
-            "Globo Play + Canais + Telecine\n"
-            "Duração: 30 dias"
-        ),
+        "descricao": "Acesso Globoplay + canais + Telecine - 30 dias.",
         "preco": 6.00,
-        "estoque": 100,
+        "estoque": 0,
     },
 
     {
         "nome": "📺 TELA MAX BASICA COM ANUNCIO",
-        "descricao": (
-            "Max básica com anúncio\n"
-            "Duração: 30 dias"
-        ),
+        "descricao": "Acesso Max básico com anúncio - 30 dias.",
         "preco": 3.00,
-        "estoque": 100,
+        "estoque": 0,
     },
 
     {
-        "nome": "🎞️ TELA MUBI 30 DIAS",
-        "descricao": (
-            "MUBI\n"
-            "Duração: 30 dias"
-        ),
+        "nome": "🗃️ TELA MUBI 30 DIAS",
+        "descricao": "Acesso MUBI - duração de 30 dias.",
         "preco": 3.00,
-        "estoque": 100,
+        "estoque": 0,
     },
 
     {
         "nome": "🔴 TELA NETFLIX 4K PRIVADA COM PIN",
-        "descricao": (
-            "Netflix 4K privada com PIN\n"
-            "Duração: 30 dias"
-        ),
+        "descricao": "Acesso Netflix 4K privada com PIN - 30 dias.",
         "preco": 8.00,
-        "estoque": 100,
+        "estoque": 0,
     },
-
 ]
 
 
@@ -79,80 +61,65 @@ def cadastrar_produtos_automaticamente():
     conn = conectar()
     cursor = conn.cursor()
 
-    cadastrados = 0
+    try:
 
-    for produto in PRODUTOS_PADRAO:
+        for produto in PRODUTOS_PADRAO:
 
-        nome = produto["nome"]
-        descricao = produto["descricao"]
-        preco = produto["preco"]
-        estoque = produto["estoque"]
-
-        # -------------------------------------------------
-        # Verifica se o produto já existe
-        # -------------------------------------------------
-
-        cursor.execute(
-            """
-            SELECT id
-            FROM produtos
-            WHERE nome = ?
-            """,
-            (
-                nome,
-            ),
-        )
-
-        existente = cursor.fetchone()
-
-        # -------------------------------------------------
-        # Se já existe, não cadastra novamente
-        # -------------------------------------------------
-
-        if existente:
-
-            continue
-
-        # -------------------------------------------------
-        # Cadastra produto
-        # -------------------------------------------------
-
-        cursor.execute(
-            """
-            INSERT INTO produtos
-            (
-                nome,
-                descricao,
-                preco,
-                estoque
+            cursor.execute(
+                """
+                SELECT id
+                FROM produtos
+                WHERE nome = ?
+                """,
+                (
+                    produto["nome"],
+                ),
             )
-            VALUES (?, ?, ?, ?)
-            """,
-            (
-                nome,
-                descricao,
-                preco,
-                estoque,
-            ),
-        )
 
-        cadastrados += 1
+            existente = cursor.fetchone()
 
-    conn.commit()
-    conn.close()
+            # ---------------------------------------------
+            # NÃO CADASTRA DUPLICADO
+            # ---------------------------------------------
 
-    if cadastrados > 0:
+            if existente:
+                continue
 
-        print(
-            f"📦 {cadastrados} produto(s) "
-            "cadastrado(s) automaticamente."
-        )
+            cursor.execute(
+                """
+                INSERT INTO produtos
+                (
+                    nome,
+                    descricao,
+                    preco,
+                    estoque
+                )
+                VALUES (?, ?, ?, ?)
+                """,
+                (
+                    produto["nome"],
+                    produto["descricao"],
+                    produto["preco"],
+                    produto["estoque"],
+                ),
+            )
 
-    else:
+            print(
+                f"✅ Produto cadastrado: "
+                f"{produto['nome']}"
+            )
 
-        print(
-            "📦 Produtos já cadastrados."
-        )
+        conn.commit()
+
+    except Exception:
+
+        conn.rollback()
+
+        raise
+
+    finally:
+
+        conn.close()
 
 
 # =========================================================
@@ -191,7 +158,7 @@ def listar_produtos():
 
 def menu_catalogo():
 
-    # Garante que os produtos existam
+    # Garante que os produtos padrão existam
     cadastrar_produtos_automaticamente()
 
     produtos = listar_produtos()
@@ -199,7 +166,7 @@ def menu_catalogo():
     botoes = []
 
     # -----------------------------------------------------
-    # ESTOQUE VAZIO
+    # SEM ESTOQUE
     # -----------------------------------------------------
 
     if not produtos:
@@ -223,7 +190,7 @@ def menu_catalogo():
 
             produto_id = produto[0]
             nome = produto[1]
-            preco = produto[3]
+            preco = float(produto[3])
 
             botoes.append(
                 [
@@ -286,3 +253,221 @@ def buscar_produto(
     conn.close()
 
     return produto
+
+
+# =========================================================
+# CADASTRAR UM PRODUTO
+# =========================================================
+
+def cadastrar_produto(
+    nome,
+    descricao,
+    preco,
+    estoque,
+):
+
+    conn = conectar()
+    cursor = conn.cursor()
+
+    try:
+
+        # Verifica se já existe
+        cursor.execute(
+            """
+            SELECT id
+            FROM produtos
+            WHERE nome = ?
+            """,
+            (
+                nome,
+            ),
+        )
+
+        existente = cursor.fetchone()
+
+        if existente:
+
+            conn.close()
+
+            return existente[0]
+
+        # Cadastra
+        cursor.execute(
+            """
+            INSERT INTO produtos
+            (
+                nome,
+                descricao,
+                preco,
+                estoque
+            )
+            VALUES (?, ?, ?, ?)
+            """,
+            (
+                nome,
+                descricao,
+                float(preco),
+                int(estoque),
+            ),
+        )
+
+        produto_id = cursor.lastrowid
+
+        conn.commit()
+
+        return produto_id
+
+    except Exception:
+
+        conn.rollback()
+
+        raise
+
+    finally:
+
+        conn.close()
+
+
+# =========================================================
+# ADICIONAR ESTOQUE
+# =========================================================
+
+def adicionar_estoque(
+    produto_id,
+    quantidade,
+):
+
+    conn = conectar()
+    cursor = conn.cursor()
+
+    try:
+
+        cursor.execute(
+            """
+            UPDATE produtos
+            SET estoque = estoque + ?
+            WHERE id = ?
+            """,
+            (
+                int(quantidade),
+                produto_id,
+            ),
+        )
+
+        alterado = (
+            cursor.rowcount > 0
+        )
+
+        conn.commit()
+
+        return alterado
+
+    except Exception:
+
+        conn.rollback()
+
+        raise
+
+    finally:
+
+        conn.close()
+
+
+# =========================================================
+# ALTERAR PREÇO
+# =========================================================
+
+def alterar_preco(
+    produto_id,
+    novo_preco,
+):
+
+    conn = conectar()
+    cursor = conn.cursor()
+
+    try:
+
+        cursor.execute(
+            """
+            UPDATE produtos
+            SET preco = ?
+            WHERE id = ?
+            """,
+            (
+                float(novo_preco),
+                produto_id,
+            ),
+        )
+
+        alterado = (
+            cursor.rowcount > 0
+        )
+
+        conn.commit()
+
+        return alterado
+
+    except Exception:
+
+        conn.rollback()
+
+        raise
+
+    finally:
+
+        conn.close()
+
+
+# =========================================================
+# EXCLUIR PRODUTO
+# =========================================================
+
+def excluir_produto(
+    produto_id,
+):
+
+    conn = conectar()
+    cursor = conn.cursor()
+
+    try:
+
+        cursor.execute(
+            """
+            DELETE FROM produtos
+            WHERE id = ?
+            """,
+            (
+                produto_id,
+            ),
+        )
+
+        excluido = (
+            cursor.rowcount > 0
+        )
+
+        conn.commit()
+
+        return excluido
+
+    except Exception:
+
+        conn.rollback()
+
+        raise
+
+    finally:
+
+        conn.close()
+
+
+# =========================================================
+# INICIALIZAÇÃO
+# =========================================================
+
+def inicializar_catalogo():
+
+    cadastrar_produtos_automaticamente()
+
+    print(
+        "🛒 Catálogo inicializado."
+    )
