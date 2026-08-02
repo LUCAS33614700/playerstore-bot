@@ -685,3 +685,409 @@ async def processar_mensagem_texto(
         )
 
         return
+# =========================================================
+# CONSULTAR PAGAMENTO
+# =========================================================
+
+async def verificar_pagamento(
+    query,
+    cobranca_id,
+):
+
+    try:
+
+        pagamento = (
+            consultar_pagamento(
+                cobranca_id
+            )
+        )
+
+        if not pagamento:
+
+            await query.answer(
+                "❌ Pagamento não encontrado.",
+                show_alert=True,
+            )
+
+            return
+
+        usuario_id = pagamento[1]
+        valor = pagamento[2]
+        status_banco = pagamento[4]
+
+        # -------------------------------------------------
+        # CONSULTAR ASAAS
+        # -------------------------------------------------
+
+        cobranca = (
+            consultar_cobranca(
+                cobranca_id
+            )
+        )
+
+        status_asaas = (
+            cobranca.get(
+                "status",
+                "",
+            )
+        )
+
+        print(
+            f"Pagamento {cobranca_id}: "
+            f"{status_asaas}"
+        )
+
+        # -------------------------------------------------
+        # PAGAMENTO CONFIRMADO
+        # -------------------------------------------------
+
+        if status_asaas in (
+            "RECEIVED",
+            "CONFIRMED",
+        ):
+
+            # -------------------------------------------------
+            # EVITAR DUPLICIDADE
+            # -------------------------------------------------
+
+            if status_banco != "pago":
+
+                atualizar_status_pagamento(
+                    cobranca_id,
+                    "pago",
+                )
+
+                adicionar_saldo(
+                    usuario_id,
+                    valor,
+                )
+
+                saldo = consultar_saldo(
+                    usuario_id
+                )
+
+                await query.edit_message_text(
+                    "✅ *PAGAMENTO CONFIRMADO!*\n\n"
+                    f"💰 Valor recebido: "
+                    f"R$ {valor:.2f}\n\n"
+                    f"💳 Novo saldo: "
+                    f"R$ {saldo:.2f}\n\n"
+                    "🎉 Seu saldo foi adicionado "
+                    "com sucesso!",
+                    reply_markup=menu_principal(),
+                    parse_mode="Markdown",
+                )
+
+                return
+
+            # -------------------------------------------------
+            # JÁ PROCESSADO
+            # -------------------------------------------------
+
+            saldo = consultar_saldo(
+                usuario_id
+            )
+
+            await query.edit_message_text(
+                "✅ *PAGAMENTO JÁ CONFIRMADO*\n\n"
+                f"💰 Valor: R$ {valor:.2f}\n"
+                f"💳 Saldo atual: "
+                f"R$ {saldo:.2f}",
+                reply_markup=menu_principal(),
+                parse_mode="Markdown",
+            )
+
+            return
+
+        # -------------------------------------------------
+        # PENDENTE
+        # -------------------------------------------------
+
+        if status_asaas in (
+            "PENDING",
+            "AWAITING_RISK_ANALYSIS",
+        ):
+
+            await query.answer(
+                "⏳ O pagamento ainda está pendente.",
+                show_alert=True,
+            )
+
+            return
+
+        # -------------------------------------------------
+        # CANCELADO / ESTORNADO
+        # -------------------------------------------------
+
+        if status_asaas in (
+            "CANCELED",
+            "REFUNDED",
+            "REFUND_REQUESTED",
+        ):
+
+            if status_banco != "pago":
+
+                atualizar_status_pagamento(
+                    cobranca_id,
+                    status_asaas.lower(),
+                )
+
+            await query.edit_message_text(
+                "❌ *PAGAMENTO NÃO CONCLUÍDO*\n\n"
+                f"Status: {status_asaas}\n\n"
+                "Nenhum saldo foi adicionado.",
+                reply_markup=menu_principal(),
+                parse_mode="Markdown",
+            )
+
+            return
+
+        # -------------------------------------------------
+        # OUTRO STATUS
+        # -------------------------------------------------
+
+        await query.answer(
+            f"Status atual: {status_asaas}",
+            show_alert=True,
+        )
+
+    except Exception as erro:
+
+        print(
+            "ERRO AO CONSULTAR PAGAMENTO:"
+        )
+
+        print(
+            repr(erro)
+        )
+
+        await query.answer(
+            "❌ Erro ao consultar o pagamento.",
+            show_alert=True,
+        )
+
+
+# =========================================================
+# BOTÕES
+# =========================================================
+
+async def botoes(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+):
+
+    query = update.callback_query
+
+    await query.answer()
+
+    usuario_id = query.from_user.id
+
+    acao = query.data
+
+    # =====================================================
+    # CONSULTAR PAGAMENTO
+    # =====================================================
+
+    if acao.startswith(
+        "consultar_pagamento_"
+    ):
+
+        cobranca_id = (
+            acao.replace(
+                "consultar_pagamento_",
+                "",
+                1,
+            )
+        )
+
+        await verificar_pagamento(
+            query,
+            cobranca_id,
+        )
+
+        return
+
+    # =====================================================
+    # CATÁLOGO
+    # =====================================================
+
+    if acao == "catalogo":
+
+        await query.edit_message_text(
+            "🛒 *LOGINS | CONTAS PREMIUM*\n\n"
+            "Escolha um produto:",
+            reply_markup=menu_catalogo(),
+            parse_mode="Markdown",
+        )
+
+        return
+
+    # =====================================================
+    # PRODUTO
+    # =====================================================
+
+    if acao.startswith(
+        "produto_"
+    ):
+
+        try:
+
+            produto_id = int(
+                acao.split("_")[1]
+            )
+
+        except (
+            ValueError,
+            IndexError,
+        ):
+
+            await query.answer(
+                "❌ Produto inválido.",
+                show_alert=True,
+            )
+
+            return
+
+        produto = buscar_produto(
+            produto_id
+        )
+
+        if not produto:
+
+            await query.answer(
+                "❌ Produto não encontrado.",
+                show_alert=True,
+            )
+
+            return
+
+        (
+            _,
+            nome,
+            descricao,
+            preco,
+            estoque,
+        ) = produto
+
+        texto = (
+            f"🛒 *{nome}*\n\n"
+            f"📝 {descricao or 'Sem descrição'}\n\n"
+            f"💰 Preço: R$ {preco:.2f}\n"
+            f"📦 Estoque: {estoque}"
+        )
+
+        botoes_compra = [
+            [
+                InlineKeyboardButton(
+                    "🛒 Comprar",
+                    callback_data=(
+                        f"comprar_{produto_id}"
+                    ),
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    "⬅️ Voltar",
+                    callback_data="catalogo",
+                )
+            ],
+        ]
+
+        await query.edit_message_text(
+            texto,
+            reply_markup=InlineKeyboardMarkup(
+                botoes_compra
+            ),
+            parse_mode="Markdown",
+        )
+
+        return
+
+    # =====================================================
+    # COMPRAR
+    # =====================================================
+
+    if acao.startswith(
+        "comprar_"
+    ):
+
+        try:
+
+            produto_id = int(
+                acao.split("_")[1]
+            )
+
+        except (
+            ValueError,
+            IndexError,
+        ):
+
+            await query.answer(
+                "❌ Produto inválido.",
+                show_alert=True,
+            )
+
+            return
+
+        await comprar_produto(
+            query,
+            produto_id,
+            usuario_id,
+        )
+
+        return
+
+    # =====================================================
+    # SALDO
+    # =====================================================
+
+    if acao == "saldo":
+
+        saldo = consultar_saldo(
+            usuario_id
+        )
+
+        botoes_saldo = [
+            [
+                InlineKeyboardButton(
+                    "💵 Adicionar saldo",
+                    callback_data=(
+                        "adicionar_saldo"
+                    ),
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    "⬅️ Voltar",
+                    callback_data=(
+                        "voltar_menu"
+                    ),
+                )
+            ],
+        ]
+
+        await query.edit_message_text(
+            "💳 *MEU SALDO*\n\n"
+            f"💰 Saldo atual: "
+            f"R$ {saldo:.2f}\n\n"
+            "Escolha uma opção:",
+            reply_markup=InlineKeyboardMarkup(
+                botoes_saldo
+            ),
+            parse_mode="Markdown",
+        )
+
+        return
+
+    # =====================================================
+    # ADICIONAR SALDO
+    # =====================================================
+
+    if acao == "adicionar_saldo":
+
+        await pedir_valor_saldo(
+            query,
+            context,
+        )
+
+        return
