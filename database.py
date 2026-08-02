@@ -8,7 +8,10 @@ from config import DATABASE_NAME
 # =========================================================
 
 def conectar():
-    return sqlite3.connect(DATABASE_NAME)
+
+    return sqlite3.connect(
+        DATABASE_NAME
+    )
 
 
 # =========================================================
@@ -64,9 +67,6 @@ def criar_tabelas():
 
     # -----------------------------------------------------
     # PAGAMENTOS PIX
-    #
-    # O campo pushinpay_id guarda o ID retornado
-    # pela PushinPay.
     # -----------------------------------------------------
 
     cursor.execute("""
@@ -91,7 +91,7 @@ def criar_tabelas():
 def criar_usuario(
     user_id,
     nome,
-    username
+    username,
 ):
 
     conn = conectar()
@@ -109,11 +109,8 @@ def criar_usuario(
     """, (
         user_id,
         nome,
-        username
+        username,
     ))
-
-    # Atualiza nome e username caso o usuário
-    # já exista.
 
     cursor.execute("""
         UPDATE usuarios
@@ -123,14 +120,16 @@ def criar_usuario(
     """, (
         nome,
         username,
-        user_id
+        user_id,
     ))
 
     conn.commit()
     conn.close()
 
 
-def consultar_usuario(user_id):
+def consultar_usuario(
+    user_id,
+):
 
     conn = conectar()
     cursor = conn.cursor()
@@ -141,7 +140,9 @@ def consultar_usuario(user_id):
         FROM usuarios
         WHERE id = ?
         """,
-        (user_id,)
+        (
+            user_id,
+        ),
     )
 
     usuario = cursor.fetchone()
@@ -151,12 +152,19 @@ def consultar_usuario(user_id):
     return usuario
 
 
-def consultar_saldo(user_id):
+def consultar_saldo(
+    user_id,
+):
 
-    usuario = consultar_usuario(user_id)
+    usuario = consultar_usuario(
+        user_id
+    )
 
     if usuario:
-        return float(usuario[3])
+
+        return float(
+            usuario[3]
+        )
 
     return 0.0
 
@@ -167,7 +175,7 @@ def consultar_saldo(user_id):
 
 def adicionar_saldo(
     user_id,
-    valor
+    valor,
 ):
 
     conn = conectar()
@@ -179,10 +187,12 @@ def adicionar_saldo(
         WHERE id = ?
     """, (
         valor,
-        user_id
+        user_id,
     ))
 
-    alterado = cursor.rowcount > 0
+    alterado = (
+        cursor.rowcount > 0
+    )
 
     conn.commit()
     conn.close()
@@ -192,7 +202,7 @@ def adicionar_saldo(
 
 def retirar_saldo(
     user_id,
-    valor
+    valor,
 ):
 
     conn = conectar()
@@ -206,10 +216,12 @@ def retirar_saldo(
     """, (
         valor,
         user_id,
-        valor
-    ))
+        valor,
+        ))
 
-    alterado = cursor.rowcount > 0
+    alterado = (
+        cursor.rowcount > 0
+    )
 
     conn.commit()
     conn.close()
@@ -225,7 +237,7 @@ def adicionar_produto(
     nome,
     descricao,
     preco,
-    estoque
+    estoque,
 ):
 
     conn = conectar()
@@ -244,12 +256,14 @@ def adicionar_produto(
         nome,
         descricao,
         preco,
-        estoque
+        estoque,
     ))
 
     conn.commit()
 
-    produto_id = cursor.lastrowid
+    produto_id = (
+        cursor.lastrowid
+    )
 
     conn.close()
 
@@ -280,7 +294,7 @@ def listar_todos_produtos():
 
 
 def excluir_produto(
-    produto_id
+    produto_id,
 ):
 
     conn = conectar()
@@ -291,10 +305,14 @@ def excluir_produto(
         DELETE FROM produtos
         WHERE id = ?
         """,
-        (produto_id,)
+        (
+            produto_id,
+        ),
     )
 
-    excluido = cursor.rowcount > 0
+    excluido = (
+        cursor.rowcount > 0
+    )
 
     conn.commit()
     conn.close()
@@ -304,7 +322,7 @@ def excluir_produto(
 
 def atualizar_estoque(
     produto_id,
-    estoque
+    estoque,
 ):
 
     conn = conectar()
@@ -316,10 +334,12 @@ def atualizar_estoque(
         WHERE id = ?
     """, (
         estoque,
-        produto_id
+        produto_id,
     ))
 
-    alterado = cursor.rowcount > 0
+    alterado = (
+        cursor.rowcount > 0
+    )
 
     conn.commit()
     conn.close()
@@ -328,13 +348,13 @@ def atualizar_estoque(
 
 
 # =========================================================
-# PAGAMENTOS PUSHINPAY
+# PAGAMENTOS
 # =========================================================
 
 def criar_pagamento(
     usuario_id,
     valor,
-    pushinpay_id
+    pushinpay_id,
 ):
 
     conn = conectar()
@@ -352,12 +372,14 @@ def criar_pagamento(
     """, (
         usuario_id,
         valor,
-        pushinpay_id
+        pushinpay_id,
     ))
 
     conn.commit()
 
-    pagamento_id = cursor.lastrowid
+    pagamento_id = (
+        cursor.lastrowid
+    )
 
     conn.close()
 
@@ -365,7 +387,7 @@ def criar_pagamento(
 
 
 def consultar_pagamento(
-    pushinpay_id
+    pushinpay_id,
 ):
 
     conn = conectar()
@@ -394,7 +416,7 @@ def consultar_pagamento(
 
 def atualizar_status_pagamento(
     pushinpay_id,
-    status
+    status,
 ):
 
     conn = conectar()
@@ -404,12 +426,15 @@ def atualizar_status_pagamento(
         UPDATE pagamentos
         SET status = ?
         WHERE pushinpay_id = ?
+        AND status = 'pendente'
     """, (
         status,
-        pushinpay_id
+        pushinpay_id,
     ))
 
-    alterado = cursor.rowcount > 0
+    alterado = (
+        cursor.rowcount > 0
+    )
 
     conn.commit()
     conn.close()
@@ -417,8 +442,165 @@ def atualizar_status_pagamento(
     return alterado
 
 
+# =========================================================
+# PAGAMENTOS PENDENTES
+# =========================================================
+
+def listar_pagamentos_pendentes():
+
+    conn = conectar()
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        SELECT
+            id,
+            usuario_id,
+            valor,
+            pushinpay_id,
+            status,
+            criado_em
+        FROM pagamentos
+        WHERE status = 'pendente'
+        ORDER BY id ASC
+    """)
+
+    pagamentos = (
+        cursor.fetchall()
+    )
+
+    conn.close()
+
+    return pagamentos
+
+
+# =========================================================
+# CONFIRMAR PAGAMENTO COM SEGURANÇA
+#
+# Esta função faz:
+#
+# 1. Localiza o PIX pendente
+# 2. Confirma que ainda está pendente
+# 3. Marca como pago
+# 4. Adiciona o saldo
+# 5. Tudo na mesma transação SQLite
+#
+# Assim o mesmo PIX não pode gerar
+# dois créditos.
+# =========================================================
+
+def processar_pagamento_pago(
+    pushinpay_id,
+):
+
+    conn = conectar()
+    cursor = conn.cursor()
+
+    try:
+
+        cursor.execute(
+            "BEGIN IMMEDIATE"
+        )
+
+        cursor.execute("""
+            SELECT
+                usuario_id,
+                valor,
+                status
+            FROM pagamentos
+            WHERE pushinpay_id = ?
+        """, (
+            pushinpay_id,
+        ))
+
+        pagamento = (
+            cursor.fetchone()
+        )
+
+        if not pagamento:
+
+            conn.rollback()
+            conn.close()
+
+            return None
+
+        usuario_id = pagamento[0]
+        valor = float(
+            pagamento[1]
+        )
+        status = pagamento[2]
+
+        # Já processado
+        if status == "pago":
+
+            conn.rollback()
+            conn.close()
+
+            return None
+
+        # Só processa pagamento pendente
+        if status != "pendente":
+
+            conn.rollback()
+            conn.close()
+
+            return None
+
+        # Marca como pago
+        cursor.execute("""
+            UPDATE pagamentos
+            SET status = 'pago'
+            WHERE pushinpay_id = ?
+            AND status = 'pendente'
+        """, (
+            pushinpay_id,
+        ))
+
+        if cursor.rowcount != 1:
+
+            conn.rollback()
+            conn.close()
+
+            return None
+
+        # Adiciona saldo
+        cursor.execute("""
+            UPDATE usuarios
+            SET saldo = saldo + ?
+            WHERE id = ?
+        """, (
+            valor,
+            usuario_id,
+        ))
+
+        if cursor.rowcount != 1:
+
+            conn.rollback()
+            conn.close()
+
+            return None
+
+        conn.commit()
+        conn.close()
+
+        return {
+            "usuario_id": usuario_id,
+            "valor": valor,
+        }
+
+    except Exception:
+
+        conn.rollback()
+        conn.close()
+
+        raise
+
+
+# =========================================================
+# PAGAMENTOS DO USUÁRIO
+# =========================================================
+
 def listar_pagamentos_usuario(
-    user_id
+    user_id,
 ):
 
     conn = conectar()
@@ -438,7 +620,9 @@ def listar_pagamentos_usuario(
         user_id,
     ))
 
-    pagamentos = cursor.fetchall()
+    pagamentos = (
+        cursor.fetchall()
+    )
 
     conn.close()
 
