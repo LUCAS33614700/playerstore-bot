@@ -12,10 +12,7 @@ from telegram.ext import (
     filters,
 )
 
-from config import (
-    BOT_TOKEN,
-    verificar_configuracao,
-)
+from config import BOT_TOKEN, verificar_configuracao
 
 from database import (
     criar_tabelas,
@@ -27,10 +24,7 @@ from database import (
 )
 
 from menu import menu_principal
-from catalogo import (
-    menu_catalogo,
-    buscar_produto,
-)
+from catalogo import menu_catalogo, buscar_produto
 
 from asaas import (
     criar_cobranca_pix,
@@ -38,13 +32,7 @@ from asaas import (
 )
 
 
-# =========================================================
-# CONFIGURAÇÕES
-# =========================================================
-
-GRUPO_CLIENTES = (
-    "https://t.me/PLAYERSTORYREFERENCIA"
-)
+GRUPO_CLIENTES = "https://t.me/PLAYERSTORYREFERENCIA"
 
 
 # =========================================================
@@ -60,21 +48,61 @@ async def start(
     criar_usuario(
         usuario.id,
         usuario.first_name or "",
-        usuario.username or "",
+        usuario.username or ""
     )
 
-    # Limpa estados anteriores
-    context.user_data.clear()
+    context.user_data["aguardando_valor"] = False
 
     texto = (
         f"👋 Olá, {usuario.first_name}!\n\n"
-        "🛒 Bem-vindo à PLAYER STORE!\n\n"
+        "🛒 *Bem-vindo à PLAYER STORE!*\n\n"
         "Escolha uma opção abaixo:"
     )
 
     await update.message.reply_text(
         texto,
         reply_markup=menu_principal(),
+        parse_mode="Markdown"
+    )
+
+
+# =========================================================
+# PLANOS
+# =========================================================
+
+async def planos(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE
+):
+    await update.message.reply_text(
+        "📺 *PLANOS PLAYERSTORE*\n\n"
+        "🎬 Telas de Streaming\n"
+        "⚡ Ativação rápida\n"
+        "💳 Pagamento via PIX\n"
+        "🆘 Suporte rápido\n\n"
+        "🛒 Consulte os produtos disponíveis "
+        "no nosso catálogo.",
+        reply_markup=menu_principal(),
+        parse_mode="Markdown"
+    )
+
+
+# =========================================================
+# PREÇOS
+# =========================================================
+
+async def precos(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE
+):
+    await update.message.reply_text(
+        "💰 *PREÇOS PLAYERSTORE*\n\n"
+        "Os preços dos produtos disponíveis "
+        "estão no catálogo.\n\n"
+        "🛒 Acesse o catálogo para consultar "
+        "os produtos e valores.",
+        reply_markup=menu_principal(),
+        parse_mode="Markdown"
     )
 
 
@@ -85,14 +113,14 @@ async def start(
 async def comprar_produto(
     query,
     produto_id,
-    usuario_id,
+    usuario_id
 ):
     produto = buscar_produto(produto_id)
 
     if not produto:
         await query.answer(
             "❌ Produto não encontrado.",
-            show_alert=True,
+            show_alert=True
         )
         return
 
@@ -101,7 +129,7 @@ async def comprar_produto(
     if estoque <= 0:
         await query.answer(
             "📦 Produto sem estoque.",
-            show_alert=True,
+            show_alert=True
         )
         return
 
@@ -109,24 +137,22 @@ async def comprar_produto(
 
     if saldo < preco:
         await query.answer(
-            (
-                f"❌ Saldo insuficiente.\n\n"
-                f"Seu saldo: R$ {saldo:.2f}\n"
-                f"Preço: R$ {preco:.2f}"
-            ),
-            show_alert=True,
+            f"❌ Saldo insuficiente.\n\n"
+            f"Seu saldo: R$ {saldo:.2f}\n"
+            f"Preço: R$ {preco:.2f}",
+            show_alert=True
         )
         return
 
     sucesso = retirar_saldo(
         usuario_id,
-        preco,
+        preco
     )
 
     if not sucesso:
         await query.answer(
             "❌ Não foi possível realizar a compra.",
-            show_alert=True,
+            show_alert=True
         )
         return
 
@@ -134,6 +160,7 @@ async def comprar_produto(
     cursor = conn.cursor()
 
     try:
+
         cursor.execute(
             """
             UPDATE produtos
@@ -141,24 +168,14 @@ async def comprar_produto(
             WHERE id = ?
             AND estoque > 0
             """,
-            (produto_id,),
+            (produto_id,)
         )
 
         if cursor.rowcount == 0:
             conn.rollback()
-            conn.close()
-
-            # Devolve o saldo se o estoque acabou
-            from database import adicionar_saldo
-
-            adicionar_saldo(
-                usuario_id,
-                preco,
-            )
-
             await query.answer(
                 "📦 Produto ficou sem estoque.",
-                show_alert=True,
+                show_alert=True
             )
             return
 
@@ -177,22 +194,15 @@ async def comprar_produto(
             (
                 usuario_id,
                 produto_id,
-                preco,
-            ),
+                preco
+            )
         )
 
         conn.commit()
 
     except Exception as erro:
+
         conn.rollback()
-        conn.close()
-
-        from database import adicionar_saldo
-
-        adicionar_saldo(
-            usuario_id,
-            preco,
-        )
 
         print(
             f"Erro ao registrar compra: {erro}"
@@ -200,27 +210,26 @@ async def comprar_produto(
 
         await query.answer(
             "❌ Erro ao registrar a compra.",
-            show_alert=True,
+            show_alert=True
         )
+
         return
 
-    conn.close()
+    finally:
+        conn.close()
 
     novo_saldo = consultar_saldo(
         usuario_id
     )
 
     await query.edit_message_text(
-        (
-            f"✅ *COMPRA REALIZADA!*\n\n"
-            f"🛒 Produto: {nome}\n"
-            f"💰 Valor: R$ {preco:.2f}\n"
-            f"💳 Saldo restante: "
-            f"R$ {novo_saldo:.2f}\n\n"
-            "📦 Seu pedido foi registrado."
-        ),
+        f"✅ *COMPRA REALIZADA!*\n\n"
+        f"🛒 Produto: {nome}\n"
+        f"💰 Valor: R$ {preco:.2f}\n"
+        f"💳 Saldo restante: R$ {novo_saldo:.2f}\n\n"
+        "📦 Seu pedido foi registrado.",
         reply_markup=menu_principal(),
-        parse_mode="Markdown",
+        parse_mode="Markdown"
     )
 
 
@@ -230,32 +239,26 @@ async def comprar_produto(
 
 async def pedir_valor_saldo(
     query,
-    context,
+    context
 ):
-    context.user_data[
-        "aguardando_valor"
-    ] = True
+    context.user_data["aguardando_valor"] = True
 
     await query.edit_message_text(
-        (
-            "💵 *ADICIONAR SALDO*\n\n"
-            "Digite o valor que deseja adicionar.\n\n"
-            "Exemplo:\n"
-            "`10`\n"
-            "`25.50`\n"
-            "`100`"
-        ),
-        reply_markup=InlineKeyboardMarkup(
+        "💵 *ADICIONAR SALDO*\n\n"
+        "Digite o valor que deseja adicionar.\n\n"
+        "Exemplo:\n"
+        "`10`\n"
+        "`25.50`\n"
+        "`100`",
+        reply_markup=InlineKeyboardMarkup([
             [
-                [
-                    InlineKeyboardButton(
-                        "⬅️ Voltar",
-                        callback_data="voltar_menu",
-                    )
-                ]
+                InlineKeyboardButton(
+                    "⬅️ Voltar",
+                    callback_data="voltar_menu"
+                )
             ]
-        ),
-        parse_mode="Markdown",
+        ]),
+        parse_mode="Markdown"
     )
 
 
@@ -265,7 +268,7 @@ async def pedir_valor_saldo(
 
 async def processar_valor_saldo(
     update: Update,
-    context: ContextTypes.DEFAULT_TYPE,
+    context: ContextTypes.DEFAULT_TYPE
 ):
     if not context.user_data.get(
         "aguardando_valor"
@@ -283,31 +286,30 @@ async def processar_valor_saldo(
         )
 
     except ValueError:
+
         await update.message.reply_text(
-            (
-                "❌ Digite apenas um valor válido.\n\n"
-                "Exemplo:\n"
-                "`10`\n"
-                "`25.50`"
-            ),
-            parse_mode="Markdown",
+            "❌ Digite apenas um valor válido.\n\n"
+            "Exemplo: `10` ou `25.50`",
+            parse_mode="Markdown"
         )
+
         return
 
     if valor < 1:
+
         await update.message.reply_text(
             "❌ O valor mínimo é R$ 1,00."
         )
+
         return
 
     if valor > 10000:
+
         await update.message.reply_text(
             "❌ O valor máximo é R$ 10.000,00."
         )
-        return
 
-    # Arredonda para 2 casas
-    valor = round(valor, 2)
+        return
 
     context.user_data[
         "aguardando_valor"
@@ -315,54 +317,47 @@ async def processar_valor_saldo(
 
     usuario = update.effective_user
 
-    mensagem = await update.message.reply_text(
+    await update.message.reply_text(
         "⏳ Gerando sua cobrança PIX..."
     )
 
     try:
-        # =================================================
-        # IMPORTANTE
-        # =================================================
-        #
-        # O seu asaas.py atual exige um cliente_id:
-        #
-        # criar_cobranca_pix(
-        #     valor,
-        #     descricao,
-        #     cliente_id
-        # )
-        #
-        # Como ainda não temos o ID do cliente Asaas
-        # salvo no banco, esta etapa não cria cobrança.
-        #
-        # O próximo passo é criar automaticamente o
-        # cliente Asaas e salvar o ID.
-        # =================================================
 
-        await mensagem.edit_text(
-            (
-                "⚠️ *INTEGRAÇÃO ASAAS*\n\n"
-                "O bot recebeu o valor corretamente.\n\n"
-                f"💰 Valor solicitado: "
-                f"R$ {valor:.2f}\n\n"
-                "Porém, ainda falta vincular "
-                "este usuário a um cliente no Asaas.\n\n"
-                "📌 Nenhuma cobrança foi criada."
-            ),
-            parse_mode="Markdown",
+        # =================================================
+        # CLIENTE ASAAS
+        # =================================================
+        #
+        # Neste momento o sistema precisa de um cliente
+        # cadastrado no Asaas.
+        #
+        # Como o seu asaas.py atual possui apenas a criação
+        # da cobrança, ainda não existe aqui uma função para
+        # criar/localizar automaticamente o cliente.
+        #
+        # Portanto não vamos inventar um ID de cliente.
+        #
+        # A próxima etapa será justamente implementar isso.
+        #
+
+        await update.message.reply_text(
+            "⚠️ *Integração PIX*\n\n"
+            f"💰 Valor solicitado: R$ {valor:.2f}\n\n"
+            "O sistema de cobrança Asaas está conectado, "
+            "mas ainda precisamos configurar o cadastro "
+            "automático do cliente Asaas.\n\n"
+            "Nenhuma cobrança foi criada.",
+            parse_mode="Markdown"
         )
 
     except Exception as erro:
+
         print(
-            f"Erro ao gerar cobrança PIX: {erro}"
+            f"Erro ao gerar cobrança: {erro}"
         )
 
-        await mensagem.edit_text(
-            (
-                "❌ Não foi possível gerar "
-                "a cobrança PIX.\n\n"
-                "Tente novamente mais tarde."
-            )
+        await update.message.reply_text(
+            "❌ Não foi possível gerar a cobrança PIX.\n\n"
+            "Tente novamente mais tarde."
         )
 
 
@@ -372,7 +367,7 @@ async def processar_valor_saldo(
 
 async def botoes(
     update: Update,
-    context: ContextTypes.DEFAULT_TYPE,
+    context: ContextTypes.DEFAULT_TYPE
 ):
     query = update.callback_query
 
@@ -388,12 +383,10 @@ async def botoes(
     if acao == "catalogo":
 
         await query.edit_message_text(
-            (
-                "🛒 *LOGINS | CONTAS PREMIUM*\n\n"
-                "Escolha um produto:"
-            ),
+            "🛒 *LOGINS | CONTAS PREMIUM*\n\n"
+            "Escolha um produto:",
             reply_markup=menu_catalogo(),
-            parse_mode="Markdown",
+            parse_mode="Markdown"
         )
 
     # =====================================================
@@ -406,11 +399,14 @@ async def botoes(
             produto_id = int(
                 acao.split("_")[1]
             )
+
         except (ValueError, IndexError):
+
             await query.answer(
                 "❌ Produto inválido.",
-                show_alert=True,
+                show_alert=True
             )
+
             return
 
         produto = buscar_produto(
@@ -418,19 +414,15 @@ async def botoes(
         )
 
         if not produto:
+
             await query.answer(
                 "❌ Produto não encontrado.",
-                show_alert=True,
+                show_alert=True
             )
+
             return
 
-        (
-            _,
-            nome,
-            descricao,
-            preco,
-            estoque,
-        ) = produto
+        _, nome, descricao, preco, estoque = produto
 
         texto = (
             f"🛒 *{nome}*\n\n"
@@ -443,17 +435,15 @@ async def botoes(
             [
                 InlineKeyboardButton(
                     "🛒 Comprar",
-                    callback_data=(
-                        f"comprar_{produto_id}"
-                    ),
+                    callback_data=f"comprar_{produto_id}"
                 )
             ],
             [
                 InlineKeyboardButton(
                     "⬅️ Voltar",
-                    callback_data="catalogo",
+                    callback_data="catalogo"
                 )
-            ],
+            ]
         ]
 
         await query.edit_message_text(
@@ -461,7 +451,7 @@ async def botoes(
             reply_markup=InlineKeyboardMarkup(
                 botoes_compra
             ),
-            parse_mode="Markdown",
+            parse_mode="Markdown"
         )
 
     # =====================================================
@@ -474,17 +464,20 @@ async def botoes(
             produto_id = int(
                 acao.split("_")[1]
             )
+
         except (ValueError, IndexError):
+
             await query.answer(
                 "❌ Produto inválido.",
-                show_alert=True,
+                show_alert=True
             )
+
             return
 
         await comprar_produto(
             query,
             produto_id,
-            usuario_id,
+            usuario_id
         )
 
     # =====================================================
@@ -501,30 +494,25 @@ async def botoes(
             [
                 InlineKeyboardButton(
                     "💵 Adicionar saldo",
-                    callback_data=(
-                        "adicionar_saldo"
-                    ),
+                    callback_data="adicionar_saldo"
                 )
             ],
             [
                 InlineKeyboardButton(
                     "⬅️ Voltar",
-                    callback_data="voltar_menu",
+                    callback_data="voltar_menu"
                 )
-            ],
+            ]
         ]
 
         await query.edit_message_text(
-            (
-                "💵 *SEU SALDO*\n\n"
-                f"💰 Saldo atual: "
-                f"R$ {saldo:.2f}\n\n"
-                "Escolha uma opção:"
-            ),
+            f"💵 *SEU SALDO*\n\n"
+            f"💰 Saldo atual: R$ {saldo:.2f}\n\n"
+            "Escolha uma opção:",
             reply_markup=InlineKeyboardMarkup(
                 botoes_saldo
             ),
-            parse_mode="Markdown",
+            parse_mode="Markdown"
         )
 
     # =====================================================
@@ -535,7 +523,7 @@ async def botoes(
 
         await pedir_valor_saldo(
             query,
-            context,
+            context
         )
 
     # =====================================================
@@ -549,13 +537,11 @@ async def botoes(
         )
 
         await query.edit_message_text(
-            (
-                "👤 *SEU PERFIL*\n\n"
-                f"🆔 ID: `{usuario_id}`\n"
-                f"💰 Saldo: R$ {saldo:.2f}"
-            ),
+            f"👤 *SEU PERFIL*\n\n"
+            f"🆔 ID: `{usuario_id}`\n"
+            f"💰 Saldo: R$ {saldo:.2f}",
             reply_markup=menu_principal(),
-            parse_mode="Markdown",
+            parse_mode="Markdown"
         )
 
     # =====================================================
@@ -569,12 +555,10 @@ async def botoes(
         ] = False
 
         await query.edit_message_text(
-            (
-                "🏠 *MENU PRINCIPAL*\n\n"
-                "Escolha uma opção:"
-            ),
+            "🏠 *MENU PRINCIPAL*\n\n"
+            "Escolha uma opção:",
             reply_markup=menu_principal(),
-            parse_mode="Markdown",
+            parse_mode="Markdown"
         )
 
     # =====================================================
@@ -584,12 +568,10 @@ async def botoes(
     elif acao == "carrinho":
 
         await query.edit_message_text(
-            (
-                "🛍️ *CARRINHO*\n\n"
-                "Seu carrinho está vazio."
-            ),
+            "🛍️ *CARRINHO*\n\n"
+            "Seu carrinho está vazio.",
             reply_markup=menu_principal(),
-            parse_mode="Markdown",
+            parse_mode="Markdown"
         )
 
     # =====================================================
@@ -599,12 +581,10 @@ async def botoes(
     elif acao == "pesquisar":
 
         await query.edit_message_text(
-            (
-                "🔎 *PESQUISAR SERVIÇO*\n\n"
-                "Sistema de pesquisa em desenvolvimento."
-            ),
+            "🔎 *PESQUISAR SERVIÇO*\n\n"
+            "Sistema de pesquisa em desenvolvimento.",
             reply_markup=menu_principal(),
-            parse_mode="Markdown",
+            parse_mode="Markdown"
         )
 
     # =====================================================
@@ -614,13 +594,11 @@ async def botoes(
     elif acao == "estoque":
 
         await query.edit_message_text(
-            (
-                "📦 *ESTOQUE DE LOGINS*\n\n"
-                "Consulte os produtos disponíveis "
-                "no catálogo."
-            ),
+            "📦 *ESTOQUE DE LOGINS*\n\n"
+            "Consulte os produtos disponíveis "
+            "no catálogo.",
             reply_markup=menu_principal(),
-            parse_mode="Markdown",
+            parse_mode="Markdown"
         )
 
     # =====================================================
@@ -630,12 +608,10 @@ async def botoes(
     elif acao == "mac":
 
         await query.edit_message_text(
-            (
-                "🎮 *ATIVAÇÃO DE MAC*\n\n"
-                "Sistema de ativação em desenvolvimento."
-            ),
+            "🎮 *ATIVAÇÃO DE MAC*\n\n"
+            "Sistema de ativação em desenvolvimento.",
             reply_markup=menu_principal(),
-            parse_mode="Markdown",
+            parse_mode="Markdown"
         )
 
     # =====================================================
@@ -645,13 +621,11 @@ async def botoes(
     elif acao == "jogos":
 
         await query.edit_message_text(
-            (
-                "⚽ *JOGOS NA TV*\n\n"
-                "Informações sobre jogos serão "
-                "adicionadas aqui."
-            ),
+            "⚽ *JOGOS NA TV*\n\n"
+            "Informações sobre jogos serão "
+            "adicionadas aqui.",
             reply_markup=menu_principal(),
-            parse_mode="Markdown",
+            parse_mode="Markdown"
         )
 
     # =====================================================
@@ -661,12 +635,10 @@ async def botoes(
     elif acao == "renovar":
 
         await query.edit_message_text(
-            (
-                "♻️ *RENOVAR CONTA*\n\n"
-                "Sistema de renovação em desenvolvimento."
-            ),
+            "♻️ *RENOVAR CONTA*\n\n"
+            "Sistema de renovação em desenvolvimento.",
             reply_markup=menu_principal(),
-            parse_mode="Markdown",
+            parse_mode="Markdown"
         )
 
     # =====================================================
@@ -676,12 +648,10 @@ async def botoes(
     elif acao == "suporte":
 
         await query.edit_message_text(
-            (
-                "🆘 *SUPORTE*\n\n"
-                "Entre em contato com o suporte."
-            ),
+            "🆘 *SUPORTE*\n\n"
+            "Entre em contato com o suporte.",
             reply_markup=menu_principal(),
-            parse_mode="Markdown",
+            parse_mode="Markdown"
         )
 
     # =====================================================
@@ -691,12 +661,10 @@ async def botoes(
     elif acao == "termos":
 
         await query.edit_message_text(
-            (
-                "📜 *TERMOS DE USO*\n\n"
-                "Os termos de uso serão adicionados aqui."
-            ),
+            "📜 *TERMOS DE USO*\n\n"
+            "Os termos de uso serão adicionados aqui.",
             reply_markup=menu_principal(),
-            parse_mode="Markdown",
+            parse_mode="Markdown"
         )
 
     # =====================================================
@@ -706,12 +674,10 @@ async def botoes(
     elif acao == "outros_bots":
 
         await query.edit_message_text(
-            (
-                "🤖 *OUTROS BOTS*\n\n"
-                "Em breve."
-            ),
+            "🤖 *OUTROS BOTS*\n\n"
+            "Em breve.",
             reply_markup=menu_principal(),
-            parse_mode="Markdown",
+            parse_mode="Markdown"
         )
 
     # =====================================================
@@ -721,30 +687,24 @@ async def botoes(
     elif acao == "grupo":
 
         await query.edit_message_text(
-            (
-                "👥 *GRUPO DE CLIENTES*\n\n"
-                "Entre no nosso grupo de clientes "
-                "pelo botão abaixo."
-            ),
-            reply_markup=InlineKeyboardMarkup(
+            "👥 *GRUPO DE CLIENTES*\n\n"
+            "Entre no nosso grupo de clientes "
+            "pelo botão abaixo.",
+            reply_markup=InlineKeyboardMarkup([
                 [
-                    [
-                        InlineKeyboardButton(
-                            "👥 ENTRAR NO GRUPO",
-                            url=GRUPO_CLIENTES,
-                        )
-                    ],
-                    [
-                        InlineKeyboardButton(
-                            "⬅️ Voltar",
-                            callback_data=(
-                                "voltar_menu"
-                            ),
-                        )
-                    ],
+                    InlineKeyboardButton(
+                        "👥 ENTRAR NO GRUPO",
+                        url=GRUPO_CLIENTES
+                    )
+                ],
+                [
+                    InlineKeyboardButton(
+                        "⬅️ Voltar",
+                        callback_data="voltar_menu"
+                    )
                 ]
-            ),
-            parse_mode="Markdown",
+            ]),
+            parse_mode="Markdown"
         )
 
     # =====================================================
@@ -754,13 +714,11 @@ async def botoes(
     elif acao == "alugar":
 
         await query.edit_message_text(
-            (
-                "📣 *ALUGAR ESTE BOT*\n\n"
-                "Em breve você poderá solicitar "
-                "seu próprio bot."
-            ),
+            "📣 *ALUGAR ESTE BOT*\n\n"
+            "Em breve você poderá solicitar "
+            "seu próprio bot.",
             reply_markup=menu_principal(),
-            parse_mode="Markdown",
+            parse_mode="Markdown"
         )
 
     # =====================================================
@@ -771,17 +729,17 @@ async def botoes(
 
         await query.answer(
             "📦 O estoque está vazio.",
-            show_alert=True,
+            show_alert=True
         )
 
 
 # =========================================================
-# TRATAMENTO DE ERROS
+# ERRO GLOBAL
 # =========================================================
 
 async def tratar_erro(
     update: object,
-    context: ContextTypes.DEFAULT_TYPE,
+    context: ContextTypes.DEFAULT_TYPE
 ):
     print(
         f"❌ Erro no bot: {context.error}"
@@ -794,13 +752,10 @@ async def tratar_erro(
 
 def main():
 
-    # Verifica as variáveis da Railway
     verificar_configuracao()
 
-    # Cria as tabelas do banco
     criar_tabelas()
 
-    # Cria aplicação Telegram
     app = (
         Application
         .builder()
@@ -808,37 +763,68 @@ def main():
         .build()
     )
 
-    # /start
+    # -----------------------------------------------------
+    # COMANDOS
+    # -----------------------------------------------------
+
     app.add_handler(
         CommandHandler(
             "start",
-            start,
+            start
         )
     )
 
-    # Botões inline
+    app.add_handler(
+        CommandHandler(
+            "planos",
+            planos
+        )
+    )
+
+    app.add_handler(
+        CommandHandler(
+            "precos",
+            precos
+        )
+    )
+
+    # -----------------------------------------------------
+    # BOTÕES
+    # -----------------------------------------------------
+
     app.add_handler(
         CallbackQueryHandler(
-            botoes,
+            botoes
         )
     )
 
-    # Mensagens de texto
+    # -----------------------------------------------------
+    # MENSAGENS DE TEXTO
+    # -----------------------------------------------------
+
     app.add_handler(
         MessageHandler(
             filters.TEXT & ~filters.COMMAND,
-            processar_valor_saldo,
+            processar_valor_saldo
         )
     )
 
-    # Tratamento de erros
+    # -----------------------------------------------------
+    # ERROS
+    # -----------------------------------------------------
+
     app.add_error_handler(
         tratar_erro
     )
 
-    print(
-        "🤖 PLAYER STORE BOT iniciado!"
-    )
+    print("🤖 Bot iniciado!")
 
-    # Inicia o bot
-    app.run
+    app.run_polling()
+
+
+# =========================================================
+# EXECUTAR
+# =========================================================
+
+if __name__ == "__main__":
+    main()
