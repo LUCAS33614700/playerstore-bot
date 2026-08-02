@@ -275,10 +275,7 @@ async def pedir_valor_saldo(
         "Digite o valor que deseja adicionar.\n\n"
         f"▫️ Mínimo: R$ {VALOR_MINIMO:.2f}\n"
         f"▫️ Máximo: R$ {VALOR_MAXIMO:.2f}\n\n"
-        "Exemplo:\n"
-        "`10`\n"
-        "`25,50`\n"
-        "`100`",
+
         reply_markup=InlineKeyboardMarkup(
             [
                 [
