@@ -966,3 +966,128 @@ async def botoes(
             ),
             parse_mode="Markdown",
 )
+    # -----------------------------------------------------
+    # VOLTAR AO MENU
+    # -----------------------------------------------------
+
+    elif acao == "voltar_menu":
+
+        await query.edit_message_text(
+            "🛒 *PLAYER STORE*\n\n"
+            "Escolha uma opção abaixo:",
+            reply_markup=menu_principal(),
+            parse_mode="Markdown",
+        )
+
+
+# =========================================================
+# MENSAGENS DE TEXTO
+# =========================================================
+
+async def mensagens(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+):
+
+    if context.user_data.get(
+        "aguardando_valor"
+    ):
+        await processar_valor_saldo(
+            update,
+            context,
+        )
+
+
+# =========================================================
+# ERROS
+# =========================================================
+
+async def erro(
+    update: object,
+    context: ContextTypes.DEFAULT_TYPE,
+):
+
+    print(
+        "ERRO:"
+    )
+
+    print(
+        repr(context.error)
+    )
+
+
+# =========================================================
+# MAIN
+# =========================================================
+
+def main():
+
+    # Verificar configuração
+    verificar_configuracao()
+
+    # Criar tabelas do banco
+    criar_tabelas()
+
+    # Criar aplicação
+    application = (
+        Application.builder()
+        .token(BOT_TOKEN)
+        .build()
+    )
+
+    # -----------------------------------------------------
+    # COMANDOS
+    # -----------------------------------------------------
+
+    application.add_handler(
+        CommandHandler(
+            "start",
+            start,
+        )
+    )
+
+    # -----------------------------------------------------
+    # BOTÕES
+    # -----------------------------------------------------
+
+    application.add_handler(
+        CallbackQueryHandler(
+            botoes
+        )
+    )
+
+    # -----------------------------------------------------
+    # MENSAGENS
+    # -----------------------------------------------------
+
+    application.add_handler(
+        MessageHandler(
+            filters.TEXT
+            & ~filters.COMMAND,
+            mensagens,
+        )
+    )
+
+    # -----------------------------------------------------
+    # ERROS
+    # -----------------------------------------------------
+
+    application.add_error_handler(
+        erro
+    )
+
+    print(
+        "🤖 PLAYER STORE iniciado!"
+    )
+
+    # -----------------------------------------------------
+    # INICIAR BOT
+    # -----------------------------------------------------
+
+    application.run_polling(
+        drop_pending_updates=True
+    )
+
+
+if __name__ == "__main__":
+    main()
