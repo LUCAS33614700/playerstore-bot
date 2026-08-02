@@ -1,5 +1,7 @@
 import requests
 
+from datetime import date
+
 from config import ASAAS_API_KEY
 
 
@@ -15,6 +17,7 @@ ASAAS_BASE_URL = "https://api.asaas.com/v3"
 # =========================================================
 
 def headers():
+
     return {
         "accept": "application/json",
         "content-type": "application/json",
@@ -29,6 +32,7 @@ def headers():
 def verificar_asaas():
 
     if not ASAAS_API_KEY:
+
         raise ValueError(
             "ASAAS_API_KEY não configurada."
         )
@@ -43,6 +47,7 @@ def verificar_asaas():
     )
 
     if resposta.status_code != 200:
+
         raise Exception(
             "Não foi possível conectar ao Asaas: "
             f"{resposta.status_code} - "
@@ -70,12 +75,15 @@ def criar_cliente(
     }
 
     if cpf_cnpj:
+
         dados["cpfCnpj"] = cpf_cnpj
 
     if email:
+
         dados["email"] = email
 
     if telefone:
+
         dados["phone"] = telefone
 
     resposta = requests.post(
@@ -85,7 +93,10 @@ def criar_cliente(
         timeout=30
     )
 
-    if resposta.status_code not in (200, 201):
+    if resposta.status_code not in (
+        200,
+        201
+    ):
 
         raise Exception(
             "Erro ao criar cliente no Asaas: "
@@ -100,7 +111,9 @@ def criar_cliente(
 # BUSCAR CLIENTE POR CPF/CNPJ
 # =========================================================
 
-def buscar_cliente_por_cpf(cpf_cnpj):
+def buscar_cliente_por_cpf(
+    cpf_cnpj
+):
 
     url = f"{ASAAS_BASE_URL}/customers"
 
@@ -130,6 +143,7 @@ def buscar_cliente_por_cpf(cpf_cnpj):
     )
 
     if clientes:
+
         return clientes[0]
 
     return None
@@ -139,7 +153,9 @@ def buscar_cliente_por_cpf(cpf_cnpj):
 # BUSCAR CLIENTE POR E-MAIL
 # =========================================================
 
-def buscar_cliente_por_email(email):
+def buscar_cliente_por_email(
+    email
+):
 
     url = f"{ASAAS_BASE_URL}/customers"
 
@@ -169,6 +185,7 @@ def buscar_cliente_por_email(email):
     )
 
     if clientes:
+
         return clientes[0]
 
     return None
@@ -185,7 +202,7 @@ def obter_cliente(
 ):
 
     # -----------------------------------------------------
-    # Primeiro tenta encontrar por CPF/CNPJ
+    # PRIMEIRO TENTA ENCONTRAR POR CPF/CNPJ
     # -----------------------------------------------------
 
     if cpf_cnpj:
@@ -195,10 +212,11 @@ def obter_cliente(
         )
 
         if cliente:
+
             return cliente
 
     # -----------------------------------------------------
-    # Depois tenta encontrar por e-mail
+    # DEPOIS TENTA ENCONTRAR POR E-MAIL
     # -----------------------------------------------------
 
     if email:
@@ -208,10 +226,11 @@ def obter_cliente(
         )
 
         if cliente:
+
             return cliente
 
     # -----------------------------------------------------
-    # Se não encontrou, cria
+    # SE NÃO ENCONTROU, CRIA
     # -----------------------------------------------------
 
     return criar_cliente(
@@ -237,6 +256,10 @@ def criar_cobranca_pix(
         "customer": cliente_id,
         "billingType": "PIX",
         "value": round(float(valor), 2),
+
+        # Data de vencimento da cobrança
+        "dueDate": date.today().isoformat(),
+
         "description": descricao,
     }
 
@@ -247,7 +270,10 @@ def criar_cobranca_pix(
         timeout=30
     )
 
-    if resposta.status_code not in (200, 201):
+    if resposta.status_code not in (
+        200,
+        201
+    ):
 
         raise Exception(
             "Erro ao criar cobrança no Asaas: "
@@ -337,7 +363,10 @@ def cancelar_cobranca(
         timeout=30
     )
 
-    if resposta.status_code not in (200, 204):
+    if resposta.status_code not in (
+        200,
+        204
+    ):
 
         raise Exception(
             "Erro ao cancelar cobrança: "
@@ -346,6 +375,7 @@ def cancelar_cobranca(
         )
 
     if resposta.text:
+
         return resposta.json()
 
     return True
