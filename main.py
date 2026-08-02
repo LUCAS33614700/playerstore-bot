@@ -2,6 +2,7 @@ import asyncio
 import base64
 import binascii
 import io
+import math
 
 
 from telegram import (
@@ -75,7 +76,7 @@ from admin import (
 
 
 # =========================================================
-# CONFIGURAÇÕES DO PAGAMENTO
+# CONFIGURAÇÕES
 # =========================================================
 
 VALOR_MINIMO = 5.00
@@ -83,6 +84,94 @@ VALOR_MINIMO = 5.00
 VALOR_MAXIMO = 499.00
 
 INTERVALO_VERIFICACAO = 5
+
+
+# =========================================================
+# LOCK DE COMPRAS
+# =========================================================
+#
+# Evita que dois cliques simultâneos no botão de compra
+# processem a mesma operação ao mesmo tempo.
+#
+# Observação:
+# Esse lock protege o processo dentro desta instância
+# do bot.
+# =========================================================
+
+LOCK_COMPRAS = asyncio.Lock()
+
+
+# =========================================================
+# FUNÇÕES AUXILIARES
+# =========================================================
+
+def limpar_estado_usuario(context):
+    """
+    Limpa os estados temporários utilizados durante
+    compra, quantidade e geração de PIX.
+    """
+
+    context.user_data["aguardando_valor"] = False
+    context.user_data["valor_saldo"] = None
+
+    context.user_data["quantidade_produto"] = None
+    context.user_data["aguardando_quantidade"] = False
+    context.user_data["produto_quantidade_id"] = None
+
+    context.user_data["admin_acao"] = None
+
+
+def obter_estoque_real(produto_id):
+    """
+    Retorna a quantidade real de logins disponíveis
+    para determinado produto.
+
+    A tabela logins é considerada a fonte principal
+    do estoque de contas.
+    """
+
+    conn = None
+
+    try:
+
+        conn = conectar()
+        cursor = conn.cursor()
+
+        cursor.execute(
+            """
+            SELECT COUNT(*)
+            FROM logins
+            WHERE produto_id = ?
+            AND status = 'disponivel'
+            """,
+            (
+                produto_id,
+            ),
+        )
+
+        resultado = cursor.fetchone()
+
+        if not resultado:
+            return 0
+
+        return int(resultado[0])
+
+    except Exception as erro:
+
+        print(
+            "ERRO AO CONSULTAR ESTOQUE REAL:"
+        )
+
+        print(
+            repr(erro)
+        )
+
+        return 0
+
+    finally:
+
+        if conn:
+            conn.close()
 
 
 # =========================================================
@@ -102,40 +191,20 @@ async def start(
         usuario.username or "",
     )
 
-    context.user_data[
-        "aguardando_valor"
-    ] = False
-
-    context.user_data[
-        "valor_saldo"
-    ] = None
-
-    context.user_data[
-        "quantidade_produto"
-    ] = None
-
-    context.user_data[
-        "aguardando_quantidade"
-    ] = False
-
-    context.user_data[
-        "produto_quantidade_id"
-    ] = None
-
-    context.user_data[
-        "admin_acao"
-    ] = None
+    limpar_estado_usuario(context)
 
     texto = (
-        f"👋 Olá, {usuario.first_name}!\n\n"
+        f"👋 Olá, {usuario.first_name or 'usuário'}!\n\n"
         "🛒 Bem-vindo à PLAYER STORE!\n\n"
         "Escolha uma opção abaixo:"
     )
 
-    await update.message.reply_text(
-        texto,
-        reply_markup=menu_principal(),
-    )
+    if update.message:
+
+        await update.message.reply_text(
+            texto,
+            reply_markup=menu_principal(),
+        )
 
 
 # =========================================================
@@ -149,134 +218,17 @@ async def comprar_produto(
     quantidade=1,
 ):
 
-    produto = buscar_produto(
-        produto_id
-    )
-
-    if not produto:
-
-        await query.answer(
-            "❌ Produto não encontrado.",
-            show_alert=True,
-        )
-
-        return
-
-    (
-        _,
-        nome,
-        descricao,
-        preco,
-        estoque,
-    ) = produto
-
-    preco = float(preco)
-    estoque = int(estoque)
-
-    quantidade = int(
-        quantidade
-    )
-
-    if quantidade <= 0:
-
-        await query.answer(
-            "❌ Quantidade inválida.",
-            show_alert=True,
-        )
-
-        return
-
     # -----------------------------------------------------
-    # VERIFICAR ESTOQUE
+    # LOCK
     # -----------------------------------------------------
 
-    if estoque < quantidade:
+    async with LOCK_COMPRAS:
 
-        await query.answer(
-            f"❌ Estoque insuficiente.\n\n"
-            f"📦 Disponível: {estoque}\n"
-            f"🛒 Solicitado: {quantidade}",
-            show_alert=True,
+        produto = buscar_produto(
+            produto_id
         )
 
-        return
-
-    valor_total = (
-        preco * quantidade
-    )
-
-    # -----------------------------------------------------
-    # VERIFICAR SALDO
-    # -----------------------------------------------------
-
-    saldo = consultar_saldo(
-        usuario_id
-    )
-
-    if saldo < valor_total:
-
-        await query.answer(
-            f"❌ Saldo insuficiente.\n\n"
-            f"💰 Seu saldo: R$ {saldo:.2f}\n"
-            f"🛒 Total: R$ {valor_total:.2f}\n\n"
-            f"💵 Faltam: "
-            f"R$ {valor_total - saldo:.2f}",
-            show_alert=True,
-        )
-
-        return
-
-    # -----------------------------------------------------
-    # RETIRAR SALDO
-    # -----------------------------------------------------
-
-    sucesso = retirar_saldo(
-        usuario_id,
-        valor_total,
-    )
-
-    if not sucesso:
-
-        await query.answer(
-            "❌ Não foi possível realizar a compra.",
-            show_alert=True,
-        )
-
-        return
-
-    conn = conectar()
-    cursor = conn.cursor()
-
-    pedido_id = None
-
-    try:
-
-        # -------------------------------------------------
-        # VERIFICAR ESTOQUE NOVAMENTE
-        # -------------------------------------------------
-
-        cursor.execute(
-            """
-            SELECT estoque
-            FROM produtos
-            WHERE id = ?
-            """,
-            (
-                produto_id,
-            ),
-        )
-
-        estoque_atual = cursor.fetchone()
-
-        if not estoque_atual:
-
-            conn.rollback()
-            conn.close()
-
-            adicionar_saldo(
-                usuario_id,
-                valor_total,
-            )
+        if not produto:
 
             await query.answer(
                 "❌ Produto não encontrado.",
@@ -285,138 +237,316 @@ async def comprar_produto(
 
             return
 
-        estoque_atual = int(
-            estoque_atual[0]
-        )
+        (
+            _,
+            nome,
+            descricao,
+            preco,
+            estoque,
+        ) = produto
 
-        if estoque_atual < quantidade:
+        try:
 
-            conn.rollback()
-            conn.close()
+            preco = float(preco)
 
-            adicionar_saldo(
-                usuario_id,
-                valor_total,
-            )
+        except (
+            ValueError,
+            TypeError,
+        ):
 
             await query.answer(
-                "❌ O estoque mudou. "
-                "Tente novamente.",
+                "❌ Preço do produto inválido.",
+                show_alert=True,
+            )
+
+            return
+
+        try:
+
+            quantidade = int(
+                quantidade
+            )
+
+        except (
+            ValueError,
+            TypeError,
+        ):
+
+            await query.answer(
+                "❌ Quantidade inválida.",
+                show_alert=True,
+            )
+
+            return
+
+        if quantidade <= 0:
+
+            await query.answer(
+                "❌ Quantidade inválida.",
+                show_alert=True,
+            )
+
+            return
+
+        if preco <= 0 or not math.isfinite(preco):
+
+            await query.answer(
+                "❌ Preço do produto inválido.",
                 show_alert=True,
             )
 
             return
 
         # -------------------------------------------------
-        # REGISTRAR PEDIDO
+        # ESTOQUE REAL
         # -------------------------------------------------
 
-        cursor.execute(
-            """
-            INSERT INTO pedidos
-            (
-                usuario_id,
-                produto_id,
-                quantidade,
-                valor,
-                status
-            )
-            VALUES (?, ?, ?, ?, 'pago')
-            """,
-            (
-                usuario_id,
-                produto_id,
-                quantidade,
-                valor_total,
-            ),
+        estoque_real = obter_estoque_real(
+            produto_id
         )
 
-        pedido_id = cursor.lastrowid
+        if estoque_real < quantidade:
 
-        conn.commit()
+            await query.answer(
+                f"❌ Estoque insuficiente.\n\n"
+                f"📦 Disponível: {estoque_real}\n"
+                f"🛒 Solicitado: {quantidade}",
+                show_alert=True,
+            )
 
-    except Exception as erro:
+            return
 
-        conn.rollback()
-        conn.close()
+        # -------------------------------------------------
+        # TOTAL
+        # -------------------------------------------------
 
-        adicionar_saldo(
+        valor_total = round(
+            preco * quantidade,
+            2,
+        )
+
+        # -------------------------------------------------
+        # SALDO
+        # -------------------------------------------------
+
+        saldo = consultar_saldo(
+            usuario_id
+        )
+
+        try:
+
+            saldo = float(saldo)
+
+        except (
+            ValueError,
+            TypeError,
+        ):
+
+            saldo = 0.0
+
+        if saldo < valor_total:
+
+            await query.answer(
+                f"❌ Saldo insuficiente.\n\n"
+                f"💰 Seu saldo: R$ {saldo:.2f}\n"
+                f"🛒 Total: R$ {valor_total:.2f}\n\n"
+                f"💵 Faltam: "
+                f"R$ {valor_total - saldo:.2f}",
+                show_alert=True,
+            )
+
+            return
+
+        # -------------------------------------------------
+        # RETIRAR SALDO
+        # -------------------------------------------------
+
+        sucesso = retirar_saldo(
             usuario_id,
             valor_total,
         )
 
-        print(
-            "ERRO AO REGISTRAR COMPRA:"
-        )
+        if not sucesso:
 
-        print(
-            repr(erro)
-        )
-
-        await query.answer(
-            "❌ Erro ao finalizar a compra.",
-            show_alert=True,
-        )
-
-        return
-
-    conn.close()
-
-    # -----------------------------------------------------
-    # RETIRAR LOGINS DO ESTOQUE
-    # -----------------------------------------------------
-
-    contas_entregues = []
-
-    for _ in range(quantidade):
-
-        login = retirar_login_disponivel(
-            produto_id,
-            usuario_id,
-            pedido_id,
-        )
-
-        if not login:
-
-            # -------------------------------------------------
-            # PROBLEMA DE ESTOQUE DE LOGINS
-            # -------------------------------------------------
-
-            print(
-                "ERRO: produto possui estoque, "
-                "mas não existe login disponível."
+            await query.answer(
+                "❌ Não foi possível retirar o saldo.\n\n"
+                "Tente novamente.",
+                show_alert=True,
             )
 
-            # Devolve o saldo
-            adicionar_saldo(
-                usuario_id,
-                valor_total,
+            return
+
+        pedido_id = None
+        contas_entregues = []
+
+        try:
+
+            # -------------------------------------------------
+            # CONFERIR ESTOQUE NOVAMENTE
+            # -------------------------------------------------
+
+            estoque_confirmado = obter_estoque_real(
+                produto_id
             )
 
-            # Marca pedido como cancelado
+            if estoque_confirmado < quantidade:
+
+                adicionar_saldo(
+                    usuario_id,
+                    valor_total,
+                )
+
+                await query.answer(
+                    "❌ O estoque acabou durante a compra.\n\n"
+                    "💰 Seu saldo foi devolvido.",
+                    show_alert=True,
+                )
+
+                return
+
+            # -------------------------------------------------
+            # CRIAR PEDIDO
+            # -------------------------------------------------
+
             conn = conectar()
             cursor = conn.cursor()
 
             cursor.execute(
                 """
-                UPDATE pedidos
-                SET status = 'cancelado'
-                WHERE id = ?
+                INSERT INTO pedidos
+                (
+                    usuario_id,
+                    produto_id,
+                    quantidade,
+                    valor,
+                    status
+                )
+                VALUES (?, ?, ?, ?, 'pago')
                 """,
                 (
-                    pedido_id,
+                    usuario_id,
+                    produto_id,
+                    quantidade,
+                    valor_total,
                 ),
             )
+
+            pedido_id = cursor.lastrowid
 
             conn.commit()
             conn.close()
 
+            # -------------------------------------------------
+            # RETIRAR LOGINS
+            # -------------------------------------------------
+
+            for indice in range(
+                quantidade
+            ):
+
+                login = retirar_login_disponivel(
+                    produto_id,
+                    usuario_id,
+                    pedido_id,
+                )
+
+                if not login:
+
+                    raise RuntimeError(
+                        "Não foi possível retirar "
+                        f"a conta {indice + 1} "
+                        "do estoque."
+                    )
+
+                dados = login.get(
+                    "dados"
+                )
+
+                if not dados:
+
+                    raise RuntimeError(
+                        "Login retirado do estoque "
+                        "sem dados de acesso."
+                    )
+
+                contas_entregues.append(
+                    str(dados)
+                )
+
+        except Exception as erro:
+
+            print(
+                "ERRO AO FINALIZAR COMPRA:"
+            )
+
+            print(
+                repr(erro)
+            )
+
+            # -------------------------------------------------
+            # DEVOLVER SALDO
+            # -------------------------------------------------
+
+            try:
+
+                adicionar_saldo(
+                    usuario_id,
+                    valor_total,
+                )
+
+            except Exception as erro_saldo:
+
+                print(
+                    "ERRO AO DEVOLVER SALDO:"
+                )
+
+                print(
+                    repr(erro_saldo)
+                )
+
+            # -------------------------------------------------
+            # CANCELAR PEDIDO
+            # -------------------------------------------------
+
+            if pedido_id:
+
+                try:
+
+                    conn = conectar()
+                    cursor = conn.cursor()
+
+                    cursor.execute(
+                        """
+                        UPDATE pedidos
+                        SET status = 'cancelado'
+                        WHERE id = ?
+                        """,
+                        (
+                            pedido_id,
+                        ),
+                    )
+
+                    conn.commit()
+                    conn.close()
+
+                except Exception as erro_pedido:
+
+                    print(
+                        "ERRO AO CANCELAR PEDIDO:"
+                    )
+
+                    print(
+                        repr(erro_pedido)
+                    )
+
             await query.edit_message_text(
                 "❌ *COMPRA NÃO CONCLUÍDA*\n\n"
-                "O estoque de contas acabou "
-                "antes da entrega.\n\n"
-                "💰 O valor foi devolvido "
-                "ao seu saldo.",
+                "Ocorreu um problema ao retirar "
+                "as contas do estoque.\n\n"
+                f"💰 R$ {valor_total:.2f} "
+                "foi devolvido ao seu saldo.\n\n"
+                "⚠️ Se o saldo não aparecer, "
+                "entre em contato com o suporte.",
                 reply_markup=InlineKeyboardMarkup(
                     [
                         [
@@ -438,80 +568,120 @@ async def comprar_produto(
 
             return
 
-        contas_entregues.append(
-            login["dados"]
+        # -----------------------------------------------------
+        # NOVO SALDO
+        # -----------------------------------------------------
+
+        novo_saldo = consultar_saldo(
+            usuario_id
         )
 
-    # -----------------------------------------------------
-    # NOVO SALDO
-    # -----------------------------------------------------
+        try:
 
-    novo_saldo = consultar_saldo(
-        usuario_id
-    )
+            novo_saldo = float(
+                novo_saldo
+            )
 
-    # -----------------------------------------------------
-    # MONTAR ENTREGA
-    # -----------------------------------------------------
+        except (
+            ValueError,
+            TypeError,
+        ):
 
-    texto_contas = ""
+            novo_saldo = 0.0
 
-    for indice, dados in enumerate(
-        contas_entregues,
-        start=1,
-    ):
+        # -----------------------------------------------------
+        # MONTAR ENTREGA
+        # -----------------------------------------------------
 
-        texto_contas += (
-            f"\n🔐 *CONTA {indice}*\n"
-            f"```\n{dados}\n```\n"
+        texto_contas = ""
+
+        for indice, dados in enumerate(
+            contas_entregues,
+            start=1,
+        ):
+
+            texto_contas += (
+                f"\n🔐 *CONTA {indice}*\n"
+                f"```\n{dados}\n```\n"
+            )
+
+        texto = (
+            "✅ *COMPRA REALIZADA!*\n\n"
+            "━━━━━━━━━━━━━━━━━━\n"
+            f"🛒 *Produto:* {nome}\n"
+            f"📦 *Quantidade:* {quantidade}\n"
+            f"💰 *Preço unitário:* R$ {preco:.2f}\n"
+            f"💵 *Total:* R$ {valor_total:.2f}\n"
+            "━━━━━━━━━━━━━━━━━━\n\n"
+            "🎁 *SEUS DADOS DE ACESSO*\n"
+            f"{texto_contas}"
+            "━━━━━━━━━━━━━━━━━━\n\n"
+            f"💳 *Saldo restante:* "
+            f"R$ {novo_saldo:.2f}\n\n"
+            "⚡ Entrega realizada automaticamente."
         )
 
-    texto = (
-        "✅ *COMPRA REALIZADA!*\n\n"
-        "━━━━━━━━━━━━━━━━━━\n"
-        f"🛒 *Produto:* {nome}\n"
-        f"📦 *Quantidade:* {quantidade}\n"
-        f"💰 *Preço unitário:* R$ {preco:.2f}\n"
-        f"💵 *Total:* R$ {valor_total:.2f}\n"
-        "━━━━━━━━━━━━━━━━━━\n\n"
-        "🎁 *SEUS DADOS DE ACESSO*\n"
-        f"{texto_contas}"
-        "━━━━━━━━━━━━━━━━━━\n\n"
-        f"💳 *Saldo restante:* "
-        f"R$ {novo_saldo:.2f}\n\n"
-        "⚡ Entrega realizada automaticamente."
-    )
+        botoes = InlineKeyboardMarkup(
+            [
+                [
+                    InlineKeyboardButton(
+                        "🛒 Comprar novamente",
+                        callback_data=(
+                            f"produto_{produto_id}"
+                        ),
+                    )
+                ],
+                [
+                    InlineKeyboardButton(
+                        "🛒 Ver catálogo",
+                        callback_data="catalogo",
+                    )
+                ],
+                [
+                    InlineKeyboardButton(
+                        "↩️ Voltar ao menu",
+                        callback_data="voltar_menu",
+                    )
+                ],
+            ]
+        )
 
-    botoes = InlineKeyboardMarkup(
-        [
-            [
-                InlineKeyboardButton(
-                    "🛒 Comprar novamente",
-                    callback_data=(
-                        f"produto_{produto_id}"
-                    ),
-                )
-            ],
-            [
-                InlineKeyboardButton(
-                    "🛒 Ver catálogo",
-                    callback_data="catalogo",
-                )
-            ],
-            [
-                InlineKeyboardButton(
-                    "↩️ Voltar ao menu",
-                    callback_data="voltar_menu",
-                )
-            ],
-        ]
-    )
+        try:
 
-    await query.edit_message_text(
-        texto,
-        reply_markup=botoes,
-        parse_mode="Markdown",
-    )
+            await query.edit_message_text(
+                texto,
+                reply_markup=botoes,
+                parse_mode="Markdown",
+            )
+
+        except Exception as erro:
+
+            print(
+                "ERRO AO ENVIAR ENTREGA:"
+            )
+
+            print(
+                repr(erro)
+            )
+
+            try:
+
+                await query.message.reply_text(
+                    texto,
+                    reply_markup=botoes,
+                    parse_mode="Markdown",
+                )
+
+            except Exception as erro_envio:
+
+                print(
+                    "ERRO AO ENVIAR ENTREGA "
+                    "POR SEGUNDA VEZ:"
+                )
+
+                print(
+                    repr(erro_envio)
+                )
 
 
 # =========================================================
@@ -545,11 +715,11 @@ async def pedir_quantidade_produto(
         estoque,
     ) = produto
 
-    estoque = int(
-        estoque
+    estoque_real = obter_estoque_real(
+        produto_id
     )
 
-    if estoque <= 0:
+    if estoque_real <= 0:
 
         await query.answer(
             "📦 Produto sem estoque.",
@@ -557,6 +727,10 @@ async def pedir_quantidade_produto(
         )
 
         return
+
+    limpar_estado_usuario(
+        context
+    )
 
     context.user_data[
         "aguardando_quantidade"
@@ -570,7 +744,7 @@ async def pedir_quantidade_produto(
         "🛍️ *COMPRAR EM QUANTIDADE*\n\n"
         f"🛒 *Produto:* {nome}\n"
         f"💰 *Preço unitário:* R$ {float(preco):.2f}\n"
-        f"📦 *Disponível:* {estoque}\n\n"
+        f"📦 *Disponível:* {estoque_real}\n\n"
         "Digite a quantidade que deseja comprar.\n\n"
         "Exemplo:\n"
         "`1`\n"
@@ -682,33 +856,30 @@ async def processar_quantidade_produto(
         estoque,
     ) = produto
 
-    preco = float(
-        preco
+    try:
+
+        preco = float(
+            preco
+        )
+
+    except (
+        ValueError,
+        TypeError,
+    ):
+
+        await update.message.reply_text(
+            "❌ Preço do produto inválido."
+        )
+
+        return True
+
+    # -----------------------------------------------------
+    # ESTOQUE REAL
+    # -----------------------------------------------------
+
+    estoque_logins = obter_estoque_real(
+        produto_id
     )
-
-    estoque = int(
-        estoque
-    )
-
-    # O estoque verdadeiro é baseado nas contas
-    conn = conectar()
-    cursor = conn.cursor()
-
-    cursor.execute(
-        """
-        SELECT COUNT(*)
-        FROM logins
-        WHERE produto_id = ?
-        AND status = 'disponivel'
-        """,
-        (
-            produto_id,
-        ),
-    )
-
-    estoque_logins = cursor.fetchone()[0]
-
-    conn.close()
 
     if quantidade > estoque_logins:
 
@@ -720,13 +891,31 @@ async def processar_quantidade_produto(
 
         return True
 
-    valor_total = (
-        preco * quantidade
+    # -----------------------------------------------------
+    # VALOR
+    # -----------------------------------------------------
+
+    valor_total = round(
+        preco * quantidade,
+        2,
     )
 
     saldo = consultar_saldo(
         update.effective_user.id
     )
+
+    try:
+
+        saldo = float(
+            saldo
+        )
+
+    except (
+        ValueError,
+        TypeError,
+    ):
+
+        saldo = 0.0
 
     if saldo < valor_total:
 
@@ -811,17 +1000,13 @@ async def pedir_valor_saldo(
     context,
 ):
 
+    limpar_estado_usuario(
+        context
+    )
+
     context.user_data[
         "aguardando_valor"
     ] = True
-
-    context.user_data[
-        "valor_saldo"
-    ] = None
-
-    context.user_data[
-        "aguardando_quantidade"
-    ] = False
 
     await query.edit_message_text(
         "💵 *ADICIONAR SALDO*\n\n"
@@ -881,9 +1066,13 @@ def converter_qr_code_base64(
 
             return None
 
-        return io.BytesIO(
+        arquivo = io.BytesIO(
             dados
         )
+
+        arquivo.seek(0)
+
+        return arquivo
 
     except (
         ValueError,
@@ -922,16 +1111,47 @@ async def processar_valor_saldo(
         .strip()
     )
 
+    # -----------------------------------------------------
+    # NORMALIZAR VALOR
+    # -----------------------------------------------------
+
     try:
 
-        valor = float(
-            texto.replace(
+        texto = (
+            texto
+            .replace(
+                "R$",
+                "",
+            )
+            .replace(
+                " ",
+                "",
+            )
+            .strip()
+        )
+
+        # Caso o usuário use formato brasileiro:
+        # 1.234,56 -> 1234.56
+        if "," in texto:
+
+            texto = texto.replace(
+                ".",
+                "",
+            )
+
+            texto = texto.replace(
                 ",",
                 ".",
             )
+
+        valor = float(
+            texto
         )
 
-    except ValueError:
+    except (
+        ValueError,
+        TypeError,
+    ):
 
         await update.message.reply_text(
             "❌ Digite apenas um valor válido.\n\n"
@@ -943,6 +1163,24 @@ async def processar_valor_saldo(
         )
 
         return
+
+    # -----------------------------------------------------
+    # EVITAR NAN / INFINITO
+    # -----------------------------------------------------
+
+    if not math.isfinite(
+        valor
+    ):
+
+        await update.message.reply_text(
+            "❌ Digite um valor válido."
+        )
+
+        return
+
+    # -----------------------------------------------------
+    # LIMITES
+    # -----------------------------------------------------
 
     if valor < VALOR_MINIMO:
 
@@ -986,9 +1224,23 @@ async def processar_valor_saldo(
 
     try:
 
-        pix = criar_pix(
-            valor=valor
+        # -------------------------------------------------
+        # CRIAR PIX
+        # -------------------------------------------------
+
+        pix = await asyncio.to_thread(
+            criar_pix,
+            valor=valor,
         )
+
+        if not isinstance(
+            pix,
+            dict,
+        ):
+
+            raise RuntimeError(
+                "Resposta inválida da PushinPay."
+            )
 
         transacao_id = pix.get(
             "id"
@@ -1004,17 +1256,21 @@ async def processar_valor_saldo(
 
         if not transacao_id:
 
-            raise Exception(
+            raise RuntimeError(
                 "PushinPay não retornou "
                 "o ID da transação."
             )
 
         if not qr_code:
 
-            raise Exception(
+            raise RuntimeError(
                 "PushinPay não retornou "
                 "o código PIX."
             )
+
+        # -------------------------------------------------
+        # REGISTRAR PAGAMENTO
+        # -------------------------------------------------
 
         criar_pagamento(
             usuario.id,
@@ -1050,7 +1306,7 @@ async def processar_valor_saldo(
             ],
             [
                 InlineKeyboardButton(
-                    "⏰ AGUARDANDO PAGAMENTO",
+                    "⏰ VERIFICAR STATUS",
                     callback_data=(
                         "status_pagamento_"
                         f"{transacao_id}"
@@ -1077,7 +1333,13 @@ async def processar_valor_saldo(
 
         if imagem_qr:
 
-            await mensagem.delete()
+            try:
+
+                await mensagem.delete()
+
+            except Exception:
+
+                pass
 
             await update.message.reply_photo(
                 photo=imagem_qr,
@@ -1104,11 +1366,31 @@ async def processar_valor_saldo(
             repr(erro)
         )
 
+        context.user_data[
+            "aguardando_valor"
+        ] = False
+
         await mensagem.edit_text(
-            "❌ *Não foi possível gerar o PIX.*\n\n"
+            "❌ *NÃO FOI POSSÍVEL GERAR O PIX*\n\n"
             "Ocorreu um erro ao comunicar "
             "com a PushinPay.\n\n"
-            "Tente novamente em alguns instantes.",
+            "💡 Tente novamente em alguns instantes.",
+            reply_markup=InlineKeyboardMarkup(
+                [
+                    [
+                        InlineKeyboardButton(
+                            "🔄 Tentar novamente",
+                            callback_data="adicionar_saldo",
+                        )
+                    ],
+                    [
+                        InlineKeyboardButton(
+                            "↩️ Voltar ao menu",
+                            callback_data="voltar_menu",
+                        )
+                    ],
+                ]
+            ),
             parse_mode="Markdown",
         )
 
@@ -1123,7 +1405,7 @@ async def processar_mensagem_texto(
 ):
 
     # -----------------------------------------------------
-    # PRIMEIRO: ADMIN
+    # ADMIN
     # -----------------------------------------------------
 
     if await processar_admin_texto(
@@ -1189,8 +1471,14 @@ async def verificar_pagamento(
             return
 
         usuario_id = pagamento[1]
-        valor = pagamento[2]
+        valor = float(
+            pagamento[2]
+        )
         status_banco = pagamento[4]
+
+        # -------------------------------------------------
+        # JÁ PAGO
+        # -------------------------------------------------
 
         if status_banco == "pago":
 
@@ -1199,28 +1487,46 @@ async def verificar_pagamento(
             )
 
             await query.answer(
-                "✅ Pagamento já confirmado.",
+                f"✅ Pagamento já confirmado.\n"
+                f"Saldo: R$ {float(saldo):.2f}",
                 show_alert=True,
             )
 
             return
+
+        # -------------------------------------------------
+        # CONSULTAR PUSHINPAY
+        # -------------------------------------------------
 
         transacao = await asyncio.to_thread(
             consultar_pix,
             transacao_id,
         )
 
+        if not isinstance(
+            transacao,
+            dict,
+        ):
+
+            raise RuntimeError(
+                "Resposta inválida da PushinPay."
+            )
+
         status = str(
             transacao.get(
                 "status",
                 "",
             )
-        ).lower()
+        ).lower().strip()
 
         print(
             f"Pagamento {transacao_id}: "
             f"{status}"
         )
+
+        # -------------------------------------------------
+        # PAGO
+        # -------------------------------------------------
 
         if status == "paid":
 
@@ -1239,7 +1545,7 @@ async def verificar_pagamento(
                     f"💰 Valor recebido: "
                     f"R$ {valor:.2f}\n\n"
                     f"💳 Novo saldo: "
-                    f"R$ {saldo:.2f}\n\n"
+                    f"R$ {float(saldo):.2f}\n\n"
                     "🎉 Seu saldo foi adicionado "
                     "com sucesso!",
                     reply_markup=menu_principal(),
@@ -1255,6 +1561,10 @@ async def verificar_pagamento(
 
             return
 
+        # -------------------------------------------------
+        # PENDENTE
+        # -------------------------------------------------
+
         if status in (
             "created",
             "pending",
@@ -1267,16 +1577,22 @@ async def verificar_pagamento(
 
             return
 
+        # -------------------------------------------------
+        # CANCELADO / EXPIRADO
+        # -------------------------------------------------
+
         if status in (
             "canceled",
             "cancelled",
             "expired",
         ):
 
-            atualizar_status_pagamento(
-                transacao_id,
-                "cancelado",
-            )
+            if status_banco != "pago":
+
+                atualizar_status_pagamento(
+                    transacao_id,
+                    "cancelado",
+                )
 
             await query.edit_message_text(
                 "❌ *PAGAMENTO ENCERRADO*\n\n"
@@ -1288,8 +1604,12 @@ async def verificar_pagamento(
 
             return
 
+        # -------------------------------------------------
+        # OUTRO STATUS
+        # -------------------------------------------------
+
         await query.answer(
-            f"Status atual: {status}",
+            f"Status atual: {status or 'desconhecido'}",
             show_alert=True,
         )
 
@@ -1317,7 +1637,21 @@ async def verificar_pagamentos_automaticamente(
     context: ContextTypes.DEFAULT_TYPE,
 ):
 
-    pagamentos = listar_pagamentos_pendentes()
+    try:
+
+        pagamentos = listar_pagamentos_pendentes()
+
+    except Exception as erro:
+
+        print(
+            "ERRO AO LISTAR PAGAMENTOS PENDENTES:"
+        )
+
+        print(
+            repr(erro)
+        )
+
+        return
 
     if not pagamentos:
 
@@ -1341,22 +1675,45 @@ async def verificar_pagamentos_automaticamente(
                 criado_em,
             ) = pagamento
 
+            # -------------------------------------------------
+            # IGNORAR CASO JÁ TENHA SIDO PAGO
+            # -------------------------------------------------
+
+            if status_banco == "pago":
+
+                continue
+
+            # -------------------------------------------------
+            # CONSULTAR PUSHINPAY
+            # -------------------------------------------------
+
             transacao = await asyncio.to_thread(
                 consultar_pix,
                 transacao_id,
             )
+
+            if not isinstance(
+                transacao,
+                dict,
+            ):
+
+                continue
 
             status = str(
                 transacao.get(
                     "status",
                     "",
                 )
-            ).lower()
+            ).lower().strip()
 
             print(
                 f"PIX {transacao_id}: "
                 f"{status}"
             )
+
+            # -------------------------------------------------
+            # PAGO
+            # -------------------------------------------------
 
             if status == "paid":
 
@@ -1384,7 +1741,7 @@ async def verificar_pagamentos_automaticamente(
                             f"🆔 ID: `{transacao_id}`\n"
                             "━━━━━━━━━━━━━━━━━━\n\n"
                             f"💳 *Novo saldo:* "
-                            f"R$ {novo_saldo:.2f}\n\n"
+                            f"R$ {float(novo_saldo):.2f}\n\n"
                             "🎉 Seu saldo foi liberado "
                             "automaticamente!"
                         ),
@@ -1404,6 +1761,10 @@ async def verificar_pagamentos_automaticamente(
                     )
 
                 continue
+
+            # -------------------------------------------------
+            # CANCELADO / EXPIRADO
+            # -------------------------------------------------
 
             if status in (
                 "canceled",
@@ -1448,9 +1809,17 @@ async def verificar_pagamentos_automaticamente(
 
         except Exception as erro:
 
+            try:
+
+                identificador = pagamento[3]
+
+            except Exception:
+
+                identificador = "desconhecido"
+
             print(
                 "ERRO NA VERIFICAÇÃO "
-                f"DO PIX {pagamento[3]}:"
+                f"DO PIX {identificador}:"
             )
 
             print(
@@ -1467,49 +1836,78 @@ async def mostrar_status_pagamento(
     transacao_id,
 ):
 
-    pagamento = consultar_pagamento(
-        transacao_id
-    )
+    try:
 
-    if not pagamento:
+        pagamento = consultar_pagamento(
+            transacao_id
+        )
+
+        if not pagamento:
+
+            await query.answer(
+                "❌ Pagamento não encontrado.",
+                show_alert=True,
+            )
+
+            return
+
+        status = pagamento[4]
+
+        # -------------------------------------------------
+        # PAGO
+        # -------------------------------------------------
+
+        if status == "pago":
+
+            saldo = consultar_saldo(
+                pagamento[1]
+            )
+
+            await query.answer(
+                f"✅ Pago!\n"
+                f"Saldo: R$ {float(saldo):.2f}",
+                show_alert=True,
+            )
+
+            return
+
+        # -------------------------------------------------
+        # CANCELADO
+        # -------------------------------------------------
+
+        if status == "cancelado":
+
+            await query.answer(
+                "❌ Esta cobrança foi encerrada.",
+                show_alert=True,
+            )
+
+            return
+
+        # -------------------------------------------------
+        # PENDENTE
+        # -------------------------------------------------
 
         await query.answer(
-            "❌ Pagamento não encontrado.",
+            "⏰ Ainda aguardando o pagamento.\n\n"
+            "O bot verifica automaticamente.",
             show_alert=True,
         )
 
-        return
+    except Exception as erro:
 
-    status = pagamento[4]
+        print(
+            "ERRO AO MOSTRAR STATUS:"
+        )
 
-    if status == "pago":
-
-        saldo = consultar_saldo(
-            pagamento[1]
+        print(
+            repr(erro)
         )
 
         await query.answer(
-            f"✅ Pago!\n"
-            f"Saldo: R$ {saldo:.2f}",
+            "❌ Não foi possível consultar o status.",
             show_alert=True,
         )
-
-        return
-
-    if status == "cancelado":
-
-        await query.answer(
-            "❌ Esta cobrança foi encerrada.",
-            show_alert=True,
-        )
-
-        return
-
-    await query.answer(
-        "⏰ Ainda aguardando o pagamento.\n\n"
-        "O bot verifica automaticamente.",
-        show_alert=True,
-    )
 
 
 # =========================================================
@@ -1527,7 +1925,7 @@ async def botoes(
 
     usuario_id = query.from_user.id
 
-    acao = query.data
+    acao = query.data or ""
 
     # =====================================================
     # ADMIN
@@ -1597,6 +1995,14 @@ async def botoes(
             "aguardando_quantidade"
         ] = False
 
+        context.user_data[
+            "produto_quantidade_id"
+        ] = None
+
+        context.user_data[
+            "aguardando_valor"
+        ] = False
+
         await query.edit_message_text(
             "🛒 *LOGINS | CONTAS PREMIUM*\n\n"
             "Escolha um produto:",
@@ -1653,27 +2059,31 @@ async def botoes(
             estoque,
         ) = produto
 
-        preco = float(preco)
+        try:
 
-        # Estoque real de contas
-        conn = conectar()
-        cursor = conn.cursor()
+            preco = float(
+                preco
+            )
 
-        cursor.execute(
-            """
-            SELECT COUNT(*)
-            FROM logins
-            WHERE produto_id = ?
-            AND status = 'disponivel'
-            """,
-            (
-                produto_id,
-            ),
+        except (
+            ValueError,
+            TypeError,
+        ):
+
+            await query.answer(
+                "❌ Preço do produto inválido.",
+                show_alert=True,
+            )
+
+            return
+
+        # -------------------------------------------------
+        # ESTOQUE REAL
+        # -------------------------------------------------
+
+        estoque_real = obter_estoque_real(
+            produto_id
         )
-
-        estoque_real = cursor.fetchone()[0]
-
-        conn.close()
 
         if estoque_real <= 0:
 
@@ -1687,6 +2097,19 @@ async def botoes(
         saldo = consultar_saldo(
             usuario_id
         )
+
+        try:
+
+            saldo = float(
+                saldo
+            )
+
+        except (
+            ValueError,
+            TypeError,
+        ):
+
+            saldo = 0.0
 
         texto = (
             "🛒 *FINALIZAR COMPRA*\n\n"
@@ -1815,6 +2238,15 @@ async def botoes(
 
             return
 
+        if quantidade <= 0:
+
+            await query.answer(
+                "❌ Quantidade inválida.",
+                show_alert=True,
+            )
+
+            return
+
         await comprar_produto(
             query,
             produto_id,
@@ -1873,6 +2305,19 @@ async def botoes(
             usuario_id
         )
 
+        try:
+
+            saldo = float(
+                saldo
+            )
+
+        except (
+            ValueError,
+            TypeError,
+        ):
+
+            saldo = 0.0
+
         botoes_saldo = [
             [
                 InlineKeyboardButton(
@@ -1920,25 +2365,9 @@ async def botoes(
 
     if acao == "voltar_menu":
 
-        context.user_data[
-            "aguardando_valor"
-        ] = False
-
-        context.user_data[
-            "valor_saldo"
-        ] = None
-
-        context.user_data[
-            "aguardando_quantidade"
-        ] = False
-
-        context.user_data[
-            "produto_quantidade_id"
-        ] = None
-
-        context.user_data[
-            "quantidade_produto"
-        ] = None
+        limpar_estado_usuario(
+            context
+        )
 
         await query.edit_message_text(
             "🛒 *PLAYER STORE*\n\n"
@@ -1996,13 +2425,28 @@ async def botoes(
             usuario_id
         )
 
+        try:
+
+            saldo = float(
+                saldo
+            )
+
+        except (
+            ValueError,
+            TypeError,
+        ):
+
+            saldo = 0.0
+
         nome = (
             query.from_user.full_name
             or query.from_user.first_name
             or "Usuário"
         )
 
-        username = query.from_user.username
+        username = (
+            query.from_user.username
+        )
 
         texto_username = (
             f"@{username}"
@@ -2105,8 +2549,9 @@ async def iniciar_verificador(
     if application.job_queue is None:
 
         raise RuntimeError(
-            "JobQueue não está disponível. "
-            "Instale python-telegram-bot[job-queue]."
+            "JobQueue não está disponível.\n"
+            "Instale:\n"
+            "python-telegram-bot[job-queue]"
         )
 
     application.job_queue.run_repeating(
@@ -2120,6 +2565,11 @@ async def iniciar_verificador(
         "💳 Verificador automático de PIX iniciado."
     )
 
+    print(
+        f"⏱️ Intervalo: "
+        f"{INTERVALO_VERIFICACAO} segundos."
+    )
+
 
 # =========================================================
 # ERRO GLOBAL
@@ -2131,11 +2581,19 @@ async def erro_global(
 ):
 
     print(
-        "ERRO:"
+        "======================================"
+    )
+
+    print(
+        "❌ ERRO GLOBAL DO BOT"
     )
 
     print(
         repr(context.error)
+    )
+
+    print(
+        "======================================"
     )
 
 
@@ -2145,9 +2603,21 @@ async def erro_global(
 
 def main():
 
+    # -----------------------------------------------------
+    # CONFIGURAÇÃO
+    # -----------------------------------------------------
+
     verificar_configuracao()
 
+    # -----------------------------------------------------
+    # BANCO
+    # -----------------------------------------------------
+
     criar_tabelas()
+
+    # -----------------------------------------------------
+    # APPLICATION
+    # -----------------------------------------------------
 
     application = (
         Application.builder()
@@ -2210,12 +2680,36 @@ def main():
         erro_global
     )
 
+    # =====================================================
+    # INICIAR
+    # =====================================================
+
+    print(
+        "======================================"
+    )
+
     print(
         "🤖 PLAYER STORE iniciado!"
     )
 
     print(
         "👑 Painel ADM: /admin"
+    )
+
+    print(
+        "💳 PIX automático: ATIVO"
+    )
+
+    print(
+        "🛒 Sistema de compras: ATIVO"
+    )
+
+    print(
+        "🔐 Entrega automática: ATIVA"
+    )
+
+    print(
+        "======================================"
     )
 
     application.run_polling(
