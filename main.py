@@ -907,4 +907,62 @@ async def botoes(
 
     # -----------------------------------------------------
     # COMPRAR
- 
+     # -----------------------------------------------------
+    # COMPRAR PRODUTO
+    # -----------------------------------------------------
+
+    elif acao.startswith("comprar_"):
+
+        produto_id = int(
+            acao.split("_")[1]
+        )
+
+        await comprar_produto(
+            query,
+            produto_id,
+            usuario_id,
+        )
+
+    # -----------------------------------------------------
+    # ADICIONAR SALDO
+    # -----------------------------------------------------
+
+    elif acao == "adicionar_saldo":
+
+        await pedir_valor_saldo(
+            query,
+            context,
+        )
+
+    # -----------------------------------------------------
+    # SALDO
+    # -----------------------------------------------------
+
+    elif acao == "saldo":
+
+        saldo = consultar_saldo(
+            usuario_id
+        )
+
+        await query.edit_message_text(
+            "💳 *MEU SALDO*\n\n"
+            f"💰 Saldo atual: R$ {saldo:.2f}\n\n"
+            "Escolha uma opção:",
+            reply_markup=InlineKeyboardMarkup(
+                [
+                    [
+                        InlineKeyboardButton(
+                            "💵 Adicionar saldo",
+                            callback_data="adicionar_saldo",
+                        )
+                    ],
+                    [
+                        InlineKeyboardButton(
+                            "⬅️ Voltar",
+                            callback_data="voltar_menu",
+                        )
+                    ],
+                ]
+            ),
+            parse_mode="Markdown",
+)
