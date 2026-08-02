@@ -3,6 +3,7 @@ from telegram import (
     InlineKeyboardButton,
     InlineKeyboardMarkup,
 )
+
 from telegram.ext import (
     Application,
     CommandHandler,
@@ -30,6 +31,7 @@ from database import (
 )
 
 from menu import menu_principal
+
 from catalogo import (
     menu_catalogo,
     buscar_produto,
@@ -62,6 +64,7 @@ def obter_ou_criar_cliente_asaas(usuario):
     """
 
     import requests
+
     from config import ASAAS_API_KEY
 
     if not ASAAS_API_KEY:
@@ -134,8 +137,6 @@ def obter_ou_criar_cliente_asaas(usuario):
         "notificationDisabled": True,
     }
 
-    # Se o usuário tiver username,
-    # colocamos uma referência no nome.
     if usuario.username:
         dados_cliente["name"] = (
             f"{nome} (@{usuario.username})"
@@ -176,7 +177,7 @@ def obter_ou_criar_cliente_asaas(usuario):
 
 async def start(
     update: Update,
-    context: ContextTypes.DEFAULT_TYPE
+    context: ContextTypes.DEFAULT_TYPE,
 ):
 
     usuario = update.effective_user
@@ -218,10 +219,12 @@ async def comprar_produto(
     )
 
     if not produto:
+
         await query.answer(
             "❌ Produto não encontrado.",
             show_alert=True,
         )
+
         return
 
     (
@@ -233,10 +236,12 @@ async def comprar_produto(
     ) = produto
 
     if estoque <= 0:
+
         await query.answer(
             "📦 Produto sem estoque.",
             show_alert=True,
         )
+
         return
 
     saldo = consultar_saldo(
@@ -244,12 +249,14 @@ async def comprar_produto(
     )
 
     if saldo < preco:
+
         await query.answer(
             f"❌ Saldo insuficiente.\n"
             f"Seu saldo: R$ {saldo:.2f}\n"
             f"Preço: R$ {preco:.2f}",
             show_alert=True,
         )
+
         return
 
     # -----------------------------------------------------
@@ -262,10 +269,12 @@ async def comprar_produto(
     )
 
     if not sucesso:
+
         await query.answer(
             "❌ Não foi possível realizar a compra.",
             show_alert=True,
         )
+
         return
 
     # -----------------------------------------------------
@@ -285,8 +294,6 @@ async def comprar_produto(
         (produto_id,),
     )
 
-    # Verificar se realmente conseguiu
-    # diminuir o estoque.
     estoque_atualizado = (
         cursor.rowcount > 0
     )
@@ -296,7 +303,6 @@ async def comprar_produto(
         conn.rollback()
         conn.close()
 
-        # Devolver o saldo
         from database import adicionar_saldo
 
         adicionar_saldo(
@@ -308,6 +314,7 @@ async def comprar_produto(
             "❌ O produto ficou sem estoque.",
             show_alert=True,
         )
+
         return
 
     cursor.execute(
@@ -418,6 +425,7 @@ async def processar_valor_saldo(
             "Exemplo: `10` ou `25.50`",
             parse_mode="Markdown",
         )
+
         return
 
     # -----------------------------------------------------
@@ -429,6 +437,7 @@ async def processar_valor_saldo(
         await update.message.reply_text(
             "❌ O valor mínimo é R$ 1,00."
         )
+
         return
 
     if valor > 10000:
@@ -436,6 +445,7 @@ async def processar_valor_saldo(
         await update.message.reply_text(
             "❌ O valor máximo é R$ 10.000,00."
         )
+
         return
 
     # -----------------------------------------------------
@@ -498,7 +508,7 @@ async def processar_valor_saldo(
             )
 
         # -------------------------------------------------
-        # REGISTRAR PAGAMENTO NO BANCO
+        # REGISTRAR PAGAMENTO
         # -------------------------------------------------
 
         criar_pagamento(
@@ -526,14 +536,14 @@ async def processar_valor_saldo(
                 "Pix Copia e Cola."
             )
 
-        # -------------------------------------------------
-        # MONTAR RESPOSTA
-        # -------------------------------------------------
-
         expiration = pix.get(
             "expirationDate",
             "",
         )
+
+        # -------------------------------------------------
+        # MONTAR RESPOSTA
+        # -------------------------------------------------
 
         texto_pix = (
             "💳 *PAGAMENTO PIX*\n\n"
@@ -555,7 +565,7 @@ async def processar_valor_saldo(
             )
 
         # -------------------------------------------------
-        # BOTÃO
+        # BOTÕES
         # -------------------------------------------------
 
         botoes = InlineKeyboardMarkup(
@@ -628,6 +638,7 @@ async def verificar_pagamento(
                 "❌ Pagamento não encontrado.",
                 show_alert=True,
             )
+
             return
 
         usuario_id = pagamento[1]
@@ -661,8 +672,6 @@ async def verificar_pagamento(
             "CONFIRMED",
         ):
 
-            # Evitar adicionar o saldo
-            # duas vezes.
             if status_banco != "pago":
 
                 atualizar_status_pagamento(
@@ -697,7 +706,6 @@ async def verificar_pagamento(
 
                 return
 
-            # Já foi processado
             saldo = consultar_saldo(
                 usuario_id
             )
@@ -726,6 +734,7 @@ async def verificar_pagamento(
                 "⏳ O pagamento ainda está pendente.",
                 show_alert=True,
             )
+
             return
 
         # -------------------------------------------------
@@ -853,6 +862,7 @@ async def botoes(
                 "❌ Produto não encontrado.",
                 show_alert=True,
             )
+
             return
 
         (
@@ -887,4 +897,14 @@ async def botoes(
             ],
         ]
 
-        await quer
+        await query.edit_message_text(
+            texto,
+            reply_markup=InlineKeyboardMarkup(
+                botoes_compra
+            ),
+            parse_mode="Markdown",
+        )
+
+    # -----------------------------------------------------
+    # COMPRAR
+ 
