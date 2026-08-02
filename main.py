@@ -25,6 +25,7 @@ from database import (
     consultar_saldo,
     conectar,
     retirar_saldo,
+    adicionar_saldo,
     criar_pagamento,
     consultar_pagamento,
     atualizar_status_pagamento,
@@ -41,6 +42,8 @@ from asaas import (
     criar_cobranca_pix,
     obter_qrcode_pix,
     consultar_cobranca,
+    obter_ou_criar_cliente,
+    validar_documento,
 )
 
 
@@ -51,124 +54,6 @@ from asaas import (
 GRUPO_CLIENTES = (
     "https://t.me/PLAYERSTORYREFERENCIA"
 )
-
-
-# =========================================================
-# CLIENTE ASAAS
-# =========================================================
-
-def obter_ou_criar_cliente_asaas(usuario):
-    """
-    Procura o cliente no Asaas pelo externalReference.
-    Se não encontrar, cria automaticamente.
-    """
-
-    import requests
-
-    from config import ASAAS_API_KEY
-
-    if not ASAAS_API_KEY:
-        raise Exception(
-            "ASAAS_API_KEY não configurada."
-        )
-
-    base_url = "https://api.asaas.com/v3"
-
-    headers = {
-        "accept": "application/json",
-        "content-type": "application/json",
-        "access_token": ASAAS_API_KEY,
-    }
-
-    external_reference = (
-        f"telegram_{usuario.id}"
-    )
-
-    # -----------------------------------------------------
-    # PROCURAR CLIENTE EXISTENTE
-    # -----------------------------------------------------
-
-    url_busca = (
-        f"{base_url}/customers"
-    )
-
-    parametros = {
-        "externalReference": external_reference,
-        "limit": 100,
-    }
-
-    resposta = requests.get(
-        url_busca,
-        headers=headers,
-        params=parametros,
-        timeout=30,
-    )
-
-    if resposta.status_code != 200:
-        raise Exception(
-            "Erro ao consultar clientes Asaas: "
-            f"{resposta.status_code} - "
-            f"{resposta.text}"
-        )
-
-    dados = resposta.json()
-
-    clientes = dados.get(
-        "data",
-        []
-    )
-
-    if clientes:
-        return clientes[0]["id"]
-
-    # -----------------------------------------------------
-    # CRIAR NOVO CLIENTE
-    # -----------------------------------------------------
-
-    nome = (
-        usuario.full_name
-        or usuario.first_name
-        or f"Cliente {usuario.id}"
-    )
-
-    dados_cliente = {
-        "name": nome,
-        "externalReference": external_reference,
-        "notificationDisabled": True,
-    }
-
-    if usuario.username:
-        dados_cliente["name"] = (
-            f"{nome} (@{usuario.username})"
-        )
-
-    resposta = requests.post(
-        url_busca,
-        headers=headers,
-        json=dados_cliente,
-        timeout=30,
-    )
-
-    if resposta.status_code not in (
-        200,
-        201,
-    ):
-        raise Exception(
-            "Erro ao criar cliente Asaas: "
-            f"{resposta.status_code} - "
-            f"{resposta.text}"
-        )
-
-    cliente = resposta.json()
-
-    cliente_id = cliente.get("id")
-
-    if not cliente_id:
-        raise Exception(
-            "Asaas não retornou o ID do cliente."
-        )
-
-    return cliente_id
 
 
 # =========================================================
@@ -191,6 +76,14 @@ async def start(
     context.user_data[
         "aguardando_valor"
     ] = False
+
+    context.user_data[
+        "aguardando_documento"
+    ] = False
+
+    context.user_data[
+        "valor_saldo"
+    ] = None
 
     texto = (
         f"👋 Olá, {usuario.first_name}!\n\n"
@@ -235,6 +128,10 @@ async def comprar_produto(
         estoque,
     ) = produto
 
+    # -----------------------------------------------------
+    # VERIFICAR ESTOQUE
+    # -----------------------------------------------------
+
     if estoque <= 0:
 
         await query.answer(
@@ -244,6 +141,10 @@ async def comprar_produto(
 
         return
 
+    # -----------------------------------------------------
+    # VERIFICAR SALDO
+    # -----------------------------------------------------
+
     saldo = consultar_saldo(
         usuario_id
     )
@@ -251,7 +152,7 @@ async def comprar_produto(
     if saldo < preco:
 
         await query.answer(
-            f"❌ Saldo insuficiente.\n"
+            f"❌ Saldo insuficiente.\n\n"
             f"Seu saldo: R$ {saldo:.2f}\n"
             f"Preço: R$ {preco:.2f}",
             show_alert=True,
@@ -278,7 +179,7 @@ async def comprar_produto(
         return
 
     # -----------------------------------------------------
-    # ATUALIZAR ESTOQUE E PEDIDO
+    # ATUALIZAR ESTOQUE
     # -----------------------------------------------------
 
     conn = conectar()
@@ -291,19 +192,23 @@ async def comprar_produto(
         WHERE id = ?
         AND estoque > 0
         """,
-        (produto_id,),
+        (
+            produto_id,
+        ),
     )
 
     estoque_atualizado = (
         cursor.rowcount > 0
     )
 
+    # -----------------------------------------------------
+    # SE NÃO CONSEGUIU ATUALIZAR ESTOQUE
+    # -----------------------------------------------------
+
     if not estoque_atualizado:
 
         conn.rollback()
         conn.close()
-
-        from database import adicionar_saldo
 
         adicionar_saldo(
             usuario_id,
@@ -316,6 +221,10 @@ async def comprar_produto(
         )
 
         return
+
+    # -----------------------------------------------------
+    # REGISTRAR PEDIDO
+    # -----------------------------------------------------
 
     cursor.execute(
         """
@@ -339,9 +248,17 @@ async def comprar_produto(
     conn.commit()
     conn.close()
 
+    # -----------------------------------------------------
+    # NOVO SALDO
+    # -----------------------------------------------------
+
     novo_saldo = consultar_saldo(
         usuario_id
     )
+
+    # -----------------------------------------------------
+    # FINALIZAR
+    # -----------------------------------------------------
 
     await query.edit_message_text(
         f"✅ *Compra realizada!*\n\n"
@@ -368,6 +285,14 @@ async def pedir_valor_saldo(
         "aguardando_valor"
     ] = True
 
+    context.user_data[
+        "aguardando_documento"
+    ] = False
+
+    context.user_data[
+        "valor_saldo"
+    ] = None
+
     await query.edit_message_text(
         "💵 *ADICIONAR SALDO*\n\n"
         "Digite o valor que deseja adicionar.\n\n"
@@ -380,7 +305,9 @@ async def pedir_valor_saldo(
                 [
                     InlineKeyboardButton(
                         "⬅️ Voltar",
-                        callback_data="voltar_menu",
+                        callback_data=(
+                            "voltar_menu"
+                        ),
                     )
                 ]
             ]
@@ -390,7 +317,7 @@ async def pedir_valor_saldo(
 
 
 # =========================================================
-# PROCESSAR VALOR DO SALDO
+# PROCESSAR VALOR
 # =========================================================
 
 async def processar_valor_saldo(
@@ -401,9 +328,11 @@ async def processar_valor_saldo(
     if not context.user_data.get(
         "aguardando_valor"
     ):
+
         return
 
     if not update.message:
+
         return
 
     texto = update.message.text.strip()
@@ -422,14 +351,17 @@ async def processar_valor_saldo(
 
         await update.message.reply_text(
             "❌ Digite apenas um valor válido.\n\n"
-            "Exemplo: `10` ou `25.50`",
+            "Exemplo:\n"
+            "`10`\n"
+            "`25.50`\n"
+            "`100`",
             parse_mode="Markdown",
         )
 
         return
 
     # -----------------------------------------------------
-    # VALIDAR VALOR
+    # VALIDAR MÍNIMO
     # -----------------------------------------------------
 
     if valor < 1:
@@ -439,6 +371,10 @@ async def processar_valor_saldo(
         )
 
         return
+
+    # -----------------------------------------------------
+    # VALIDAR MÁXIMO
+    # -----------------------------------------------------
 
     if valor > 10000:
 
@@ -457,9 +393,120 @@ async def processar_valor_saldo(
         2,
     )
 
+    # -----------------------------------------------------
+    # GUARDAR VALOR
+    # -----------------------------------------------------
+
+    context.user_data[
+        "valor_saldo"
+    ] = valor
+
     context.user_data[
         "aguardando_valor"
     ] = False
+
+    # -----------------------------------------------------
+    # AGUARDAR CPF/CNPJ
+    # -----------------------------------------------------
+
+    context.user_data[
+        "aguardando_documento"
+    ] = True
+
+    await update.message.reply_text(
+        "🧾 *IDENTIFICAÇÃO DO PAGAMENTO*\n\n"
+        f"💰 Valor: *R$ {valor:.2f}*\n\n"
+        "Para continuar, digite seu "
+        "*CPF ou CNPJ*.\n\n"
+        "Exemplo:\n"
+        "`12345678909`\n\n"
+        "Pode enviar com ou sem pontos e traços.",
+        parse_mode="Markdown",
+    )
+
+
+# =========================================================
+# PROCESSAR CPF / CNPJ
+# =========================================================
+
+async def processar_documento(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+):
+
+    if not context.user_data.get(
+        "aguardando_documento"
+    ):
+
+        return
+
+    if not update.message:
+
+        return
+
+    documento = update.message.text.strip()
+
+    # -----------------------------------------------------
+    # LIMPAR DOCUMENTO
+    # -----------------------------------------------------
+
+    documento_limpo = "".join(
+        caractere
+        for caractere in documento
+        if caractere.isdigit()
+    )
+
+    # -----------------------------------------------------
+    # VALIDAR CPF / CNPJ
+    # -----------------------------------------------------
+
+    if not validar_documento(
+        documento_limpo
+    ):
+
+        await update.message.reply_text(
+            "❌ CPF ou CNPJ inválido.\n\n"
+            "Digite novamente.\n\n"
+            "Exemplo:\n"
+            "`12345678909`",
+            parse_mode="Markdown",
+        )
+
+        return
+
+    # -----------------------------------------------------
+    # PEGAR VALOR
+    # -----------------------------------------------------
+
+    valor = context.user_data.get(
+        "valor_saldo"
+    )
+
+    if not valor:
+
+        context.user_data[
+            "aguardando_documento"
+        ] = False
+
+        await update.message.reply_text(
+            "❌ Não encontrei o valor da cobrança.\n\n"
+            "Volte ao menu e tente novamente.",
+            reply_markup=menu_principal(),
+        )
+
+        return
+
+    # -----------------------------------------------------
+    # FINALIZAR ESTADO
+    # -----------------------------------------------------
+
+    context.user_data[
+        "aguardando_documento"
+    ] = False
+
+    context.user_data[
+        "valor_saldo"
+    ] = None
 
     usuario = update.effective_user
 
@@ -474,14 +521,45 @@ async def processar_valor_saldo(
     try:
 
         # -------------------------------------------------
-        # CRIAR / LOCALIZAR CLIENTE ASAAS
+        # NOME DO CLIENTE
         # -------------------------------------------------
 
-        cliente_id = (
-            obter_ou_criar_cliente_asaas(
-                usuario
-            )
+        nome = (
+            usuario.full_name
+            or usuario.first_name
+            or f"Cliente {usuario.id}"
         )
+
+        # -------------------------------------------------
+        # REFERÊNCIA
+        # -------------------------------------------------
+
+        external_reference = (
+            f"telegram_{usuario.id}"
+        )
+
+        # -------------------------------------------------
+        # CRIAR / LOCALIZAR CLIENTE
+        # -------------------------------------------------
+
+        cliente = obter_ou_criar_cliente(
+            nome=nome,
+            cpf_cnpj=documento_limpo,
+            external_reference=(
+                external_reference
+            ),
+        )
+
+        cliente_id = cliente.get(
+            "id"
+        )
+
+        if not cliente_id:
+
+            raise Exception(
+                "Asaas não retornou o ID "
+                "do cliente."
+            )
 
         # -------------------------------------------------
         # CRIAR COBRANÇA
@@ -494,6 +572,9 @@ async def processar_valor_saldo(
                 f"Telegram {usuario.id}"
             ),
             cliente_id=cliente_id,
+            external_reference=(
+                f"saldo_{usuario.id}"
+            ),
         )
 
         cobranca_id = cobranca.get(
@@ -509,7 +590,7 @@ async def processar_valor_saldo(
 
         # -------------------------------------------------
         # REGISTRAR PAGAMENTO
-        # -------------------------------------------------
+        # -----------------------------------------------------
 
         criar_pagamento(
             usuario.id,
@@ -536,13 +617,17 @@ async def processar_valor_saldo(
                 "Pix Copia e Cola."
             )
 
+        # -------------------------------------------------
+        # EXPIRAÇÃO
+        # -------------------------------------------------
+
         expiration = pix.get(
             "expirationDate",
             "",
         )
 
         # -------------------------------------------------
-        # MONTAR RESPOSTA
+        # TEXTO PIX
         # -------------------------------------------------
 
         texto_pix = (
@@ -552,9 +637,9 @@ async def processar_valor_saldo(
             f"`{payload}`\n\n"
             "👇 Copie o código acima e "
             "pague pelo seu banco.\n\n"
-            "⏳ Após o pagamento, o saldo "
-            "será liberado quando a cobrança "
-            "for confirmada pelo Asaas."
+            "⏳ Depois do pagamento, "
+            "clique em *Consultar pagamento* "
+            "para verificar a confirmação."
         )
 
         if expiration:
@@ -590,6 +675,10 @@ async def processar_valor_saldo(
             ]
         )
 
+        # -------------------------------------------------
+        # ENVIAR PIX
+        # -------------------------------------------------
+
         await mensagem.edit_text(
             texto_pix,
             reply_markup=botoes,
@@ -606,13 +695,58 @@ async def processar_valor_saldo(
             repr(erro)
         )
 
+        # -------------------------------------------------
+        # MOSTRAR ERRO
+        # -------------------------------------------------
+
         await mensagem.edit_text(
             "❌ *Não foi possível gerar "
             "a cobrança PIX.*\n\n"
-            "Verifique a configuração da "
-            "API do Asaas e tente novamente.",
+            "Ocorreu um erro ao comunicar "
+            "com o Asaas.\n\n"
+            "Tente novamente em alguns instantes.",
             parse_mode="Markdown",
         )
+
+
+# =========================================================
+# PROCESSAR TEXTO
+# =========================================================
+
+async def processar_mensagem_texto(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+):
+
+    # -----------------------------------------------------
+    # CPF / CNPJ
+    # -----------------------------------------------------
+
+    if context.user_data.get(
+        "aguardando_documento"
+    ):
+
+        await processar_documento(
+            update,
+            context,
+        )
+
+        return
+
+    # -----------------------------------------------------
+    # VALOR
+    # -----------------------------------------------------
+
+    if context.user_data.get(
+        "aguardando_valor"
+    ):
+
+        await processar_valor_saldo(
+            update,
+            context,
+        )
+
+        return
 
 
 # =========================================================
@@ -645,6 +779,10 @@ async def verificar_pagamento(
         valor = pagamento[2]
         status_banco = pagamento[4]
 
+        # -------------------------------------------------
+        # CONSULTAR ASAAS
+        # -------------------------------------------------
+
         cobranca = (
             consultar_cobranca(
                 cobranca_id
@@ -654,7 +792,7 @@ async def verificar_pagamento(
         status_asaas = (
             cobranca.get(
                 "status",
-                ""
+                "",
             )
         )
 
@@ -664,7 +802,7 @@ async def verificar_pagamento(
         )
 
         # -------------------------------------------------
-        # PAGAMENTO RECEBIDO
+        # PAGAMENTO CONFIRMADO
         # -------------------------------------------------
 
         if status_asaas in (
@@ -672,15 +810,15 @@ async def verificar_pagamento(
             "CONFIRMED",
         ):
 
+            # -------------------------------------------------
+            # EVITAR DUPLICIDADE
+            # -------------------------------------------------
+
             if status_banco != "pago":
 
                 atualizar_status_pagamento(
                     cobranca_id,
                     "pago",
-                )
-
-                from database import (
-                    adicionar_saldo,
                 )
 
                 adicionar_saldo(
@@ -706,6 +844,10 @@ async def verificar_pagamento(
 
                 return
 
+            # -------------------------------------------------
+            # JÁ PROCESSADO
+            # -------------------------------------------------
+
             saldo = consultar_saldo(
                 usuario_id
             )
@@ -722,372 +864,10 @@ async def verificar_pagamento(
             return
 
         # -------------------------------------------------
-        # PAGAMENTO PENDENTE
+        # PENDENTE
         # -------------------------------------------------
 
         if status_asaas in (
             "PENDING",
             "AWAITING_RISK_ANALYSIS",
-        ):
-
-            await query.answer(
-                "⏳ O pagamento ainda está pendente.",
-                show_alert=True,
-            )
-
-            return
-
-        # -------------------------------------------------
-        # PAGAMENTO CANCELADO
-        # -------------------------------------------------
-
-        if status_asaas in (
-            "CANCELED",
-            "REFUNDED",
-            "REFUND_REQUESTED",
-        ):
-
-            atualizar_status_pagamento(
-                cobranca_id,
-                status_asaas.lower(),
-            )
-
-            await query.edit_message_text(
-                "❌ *PAGAMENTO NÃO CONCLUÍDO*\n\n"
-                f"Status: {status_asaas}\n\n"
-                "Nenhum saldo foi adicionado.",
-                reply_markup=menu_principal(),
-                parse_mode="Markdown",
-            )
-
-            return
-
-        # -------------------------------------------------
-        # OUTRO STATUS
-        # -------------------------------------------------
-
-        await query.answer(
-            f"Status atual: {status_asaas}",
-            show_alert=True,
-        )
-
-    except Exception as erro:
-
-        print(
-            "ERRO AO CONSULTAR PAGAMENTO:"
-        )
-
-        print(
-            repr(erro)
-        )
-
-        await query.answer(
-            "❌ Erro ao consultar o pagamento.",
-            show_alert=True,
-        )
-
-
-# =========================================================
-# BOTÕES
-# =========================================================
-
-async def botoes(
-    update: Update,
-    context: ContextTypes.DEFAULT_TYPE,
-):
-
-    query = update.callback_query
-
-    await query.answer()
-
-    usuario_id = query.from_user.id
-
-    acao = query.data
-
-    # -----------------------------------------------------
-    # CONSULTAR PAGAMENTO
-    # -----------------------------------------------------
-
-    if acao.startswith(
-        "consultar_pagamento_"
-    ):
-
-        cobranca_id = (
-            acao.replace(
-                "consultar_pagamento_",
-                "",
-                1,
-            )
-        )
-
-        await verificar_pagamento(
-            query,
-            cobranca_id,
-        )
-
-        return
-
-    # -----------------------------------------------------
-    # CATÁLOGO
-    # -----------------------------------------------------
-
-    if acao == "catalogo":
-
-        await query.edit_message_text(
-            "🛒 *LOGINS | CONTAS PREMIUM*\n\n"
-            "Escolha um produto:",
-            reply_markup=menu_catalogo(),
-            parse_mode="Markdown",
-        )
-
-    # -----------------------------------------------------
-    # PRODUTO
-    # -----------------------------------------------------
-
-    elif acao.startswith(
-        "produto_"
-    ):
-
-        produto_id = int(
-            acao.split("_")[1]
-        )
-
-        produto = buscar_produto(
-            produto_id
-        )
-
-        if not produto:
-
-            await query.answer(
-                "❌ Produto não encontrado.",
-                show_alert=True,
-            )
-
-            return
-
-        (
-            _,
-            nome,
-            descricao,
-            preco,
-            estoque,
-        ) = produto
-
-        texto = (
-            f"🛒 *{nome}*\n\n"
-            f"📝 {descricao or 'Sem descrição'}\n\n"
-            f"💰 Preço: R$ {preco:.2f}\n"
-            f"📦 Estoque: {estoque}"
-        )
-
-        botoes_compra = [
-            [
-                InlineKeyboardButton(
-                    "🛒 Comprar",
-                    callback_data=(
-                        f"comprar_{produto_id}"
-                    ),
-                )
-            ],
-            [
-                InlineKeyboardButton(
-                    "⬅️ Voltar",
-                    callback_data="catalogo",
-                )
-            ],
-        ]
-
-        await query.edit_message_text(
-            texto,
-            reply_markup=InlineKeyboardMarkup(
-                botoes_compra
-            ),
-            parse_mode="Markdown",
-        )
-
-    # -----------------------------------------------------
-    # COMPRAR
-     # -----------------------------------------------------
-    # COMPRAR PRODUTO
-    # -----------------------------------------------------
-
-    elif acao.startswith("comprar_"):
-
-        produto_id = int(
-            acao.split("_")[1]
-        )
-
-        await comprar_produto(
-            query,
-            produto_id,
-            usuario_id,
-        )
-
-    # -----------------------------------------------------
-    # ADICIONAR SALDO
-    # -----------------------------------------------------
-
-    elif acao == "adicionar_saldo":
-
-        await pedir_valor_saldo(
-            query,
-            context,
-        )
-
-    # -----------------------------------------------------
-    # SALDO
-    # -----------------------------------------------------
-
-    elif acao == "saldo":
-
-        saldo = consultar_saldo(
-            usuario_id
-        )
-
-        await query.edit_message_text(
-            "💳 *MEU SALDO*\n\n"
-            f"💰 Saldo atual: R$ {saldo:.2f}\n\n"
-            "Escolha uma opção:",
-            reply_markup=InlineKeyboardMarkup(
-                [
-                    [
-                        InlineKeyboardButton(
-                            "💵 Adicionar saldo",
-                            callback_data="adicionar_saldo",
-                        )
-                    ],
-                    [
-                        InlineKeyboardButton(
-                            "⬅️ Voltar",
-                            callback_data="voltar_menu",
-                        )
-                    ],
-                ]
-            ),
-            parse_mode="Markdown",
-)
-    # -----------------------------------------------------
-    # VOLTAR AO MENU
-    # -----------------------------------------------------
-
-    elif acao == "voltar_menu":
-
-        await query.edit_message_text(
-            "🛒 *PLAYER STORE*\n\n"
-            "Escolha uma opção abaixo:",
-            reply_markup=menu_principal(),
-            parse_mode="Markdown",
-        )
-
-
-# =========================================================
-# MENSAGENS DE TEXTO
-# =========================================================
-
-async def mensagens(
-    update: Update,
-    context: ContextTypes.DEFAULT_TYPE,
-):
-
-    if context.user_data.get(
-        "aguardando_valor"
-    ):
-        await processar_valor_saldo(
-            update,
-            context,
-        )
-
-
-# =========================================================
-# ERROS
-# =========================================================
-
-async def erro(
-    update: object,
-    context: ContextTypes.DEFAULT_TYPE,
-):
-
-    print(
-        "ERRO:"
-    )
-
-    print(
-        repr(context.error)
-    )
-
-
-# =========================================================
-# MAIN
-# =========================================================
-
-def main():
-
-    # Verificar configuração
-    verificar_configuracao()
-
-    # Criar tabelas do banco
-    criar_tabelas()
-
-    # Criar aplicação
-    application = (
-        Application.builder()
-        .token(BOT_TOKEN)
-        .build()
-    )
-
-    # -----------------------------------------------------
-    # COMANDOS
-    # -----------------------------------------------------
-
-    application.add_handler(
-        CommandHandler(
-            "start",
-            start,
-        )
-    )
-
-    # -----------------------------------------------------
-    # BOTÕES
-    # -----------------------------------------------------
-
-    application.add_handler(
-        CallbackQueryHandler(
-            botoes
-        )
-    )
-
-    # -----------------------------------------------------
-    # MENSAGENS
-    # -----------------------------------------------------
-
-    application.add_handler(
-        MessageHandler(
-            filters.TEXT
-            & ~filters.COMMAND,
-            mensagens,
-        )
-    )
-
-    # -----------------------------------------------------
-    # ERROS
-    # -----------------------------------------------------
-
-    application.add_error_handler(
-        erro
-    )
-
-    print(
-        "🤖 PLAYER STORE iniciado!"
-    )
-
-    # -----------------------------------------------------
-    # INICIAR BOT
-    # -----------------------------------------------------
-
-    application.run_polling(
-        drop_pending_updates=True
-    )
-
-
-if __name__ == "__main__":
-    main()
+       
