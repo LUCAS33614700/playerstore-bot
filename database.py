@@ -8,10 +8,7 @@ from config import DATABASE_NAME
 # =========================================================
 
 def conectar():
-
-    return sqlite3.connect(
-        DATABASE_NAME
-    )
+    return sqlite3.connect(DATABASE_NAME)
 
 
 # =========================================================
@@ -131,16 +128,7 @@ def criar_tabelas():
     """)
 
     # -----------------------------------------------------
-    # ESTOQUE INDIVIDUAL DE LOGINS
-    #
-    # Cada registro representa UMA conta.
-    #
-    # dados:
-    # email:senha
-    #
-    # ou:
-    # email:senha | PIN:1234
-    #
+    # LOGINS
     # -----------------------------------------------------
 
     cursor.execute("""
@@ -154,10 +142,6 @@ def criar_tabelas():
             vendido_em TIMESTAMP
         )
     """)
-
-    # -----------------------------------------------------
-    # COMMIT
-    # -----------------------------------------------------
 
     conn.commit()
     conn.close()
@@ -206,23 +190,22 @@ def criar_usuario(
     conn.close()
 
 
-def consultar_usuario(
-    user_id,
-):
+def consultar_usuario(user_id):
 
     conn = conectar()
     cursor = conn.cursor()
 
-    cursor.execute(
-        """
-        SELECT *
+    cursor.execute("""
+        SELECT
+            id,
+            nome,
+            username,
+            saldo
         FROM usuarios
         WHERE id = ?
-        """,
-        (
-            user_id,
-        ),
-    )
+    """, (
+        user_id,
+    ))
 
     usuario = cursor.fetchone()
 
@@ -231,19 +214,12 @@ def consultar_usuario(
     return usuario
 
 
-def consultar_saldo(
-    user_id,
-):
+def consultar_saldo(user_id):
 
-    usuario = consultar_usuario(
-        user_id
-    )
+    usuario = consultar_usuario(user_id)
 
     if usuario:
-
-        return float(
-            usuario[3]
-        )
+        return float(usuario[3])
 
     return 0.0
 
@@ -265,13 +241,11 @@ def adicionar_saldo(
         SET saldo = saldo + ?
         WHERE id = ?
     """, (
-        valor,
+        float(valor),
         user_id,
     ))
 
-    alterado = (
-        cursor.rowcount > 0
-    )
+    alterado = cursor.rowcount > 0
 
     conn.commit()
     conn.close()
@@ -293,14 +267,12 @@ def retirar_saldo(
         WHERE id = ?
         AND saldo >= ?
     """, (
-        valor,
+        float(valor),
         user_id,
-        valor,
+        float(valor),
     ))
 
-    alterado = (
-        cursor.rowcount > 0
-    )
+    alterado = cursor.rowcount > 0
 
     conn.commit()
     conn.close()
@@ -316,7 +288,7 @@ def adicionar_produto(
     nome,
     descricao,
     preco,
-    estoque,
+    estoque=0,
 ):
 
     conn = conectar()
@@ -334,19 +306,32 @@ def adicionar_produto(
     """, (
         nome,
         descricao,
-        preco,
-        estoque,
+        float(preco),
+        int(estoque),
     ))
 
+    produto_id = cursor.lastrowid
+
     conn.commit()
-
-    produto_id = (
-        cursor.lastrowid
-    )
-
     conn.close()
 
     return produto_id
+
+
+# Compatibilidade com o admin.py
+def cadastrar_produto(
+    nome,
+    descricao,
+    preco,
+    estoque=0,
+):
+
+    return adicionar_produto(
+        nome,
+        descricao,
+        preco,
+        estoque,
+    )
 
 
 def listar_todos_produtos():
@@ -372,6 +357,56 @@ def listar_todos_produtos():
     return produtos
 
 
+def buscar_produto(produto_id):
+
+    conn = conectar()
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        SELECT
+            id,
+            nome,
+            descricao,
+            preco,
+            estoque
+        FROM produtos
+        WHERE id = ?
+    """, (
+        produto_id,
+    ))
+
+    produto = cursor.fetchone()
+
+    conn.close()
+
+    return produto
+
+
+def alterar_preco(
+    produto_id,
+    preco,
+):
+
+    conn = conectar()
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        UPDATE produtos
+        SET preco = ?
+        WHERE id = ?
+    """, (
+        float(preco),
+        produto_id,
+    ))
+
+    alterado = cursor.rowcount > 0
+
+    conn.commit()
+    conn.close()
+
+    return alterado
+
+
 def excluir_produto(
     produto_id,
 ):
@@ -379,24 +414,73 @@ def excluir_produto(
     conn = conectar()
     cursor = conn.cursor()
 
-    cursor.execute(
-        """
-        DELETE FROM produtos
-        WHERE id = ?
-        """,
-        (
+    try:
+
+        cursor.execute(
+            "BEGIN IMMEDIATE"
+        )
+
+        cursor.execute("""
+            SELECT id
+            FROM produtos
+            WHERE id = ?
+        """, (
             produto_id,
-        ),
-    )
+        ))
 
-    excluido = (
-        cursor.rowcount > 0
-    )
+        produto = cursor.fetchone()
 
-    conn.commit()
-    conn.close()
+        if not produto:
 
-    return excluido
+            conn.rollback()
+            conn.close()
+
+            return False
+
+        # Remove relação com categoria
+        cursor.execute("""
+            DELETE FROM produto_categorias
+            WHERE produto_id = ?
+        """, (
+            produto_id,
+        ))
+
+        # Remove logins do produto
+        cursor.execute("""
+            DELETE FROM logins
+            WHERE produto_id = ?
+        """, (
+            produto_id,
+        ))
+
+        # Remove produto
+        cursor.execute("""
+            DELETE FROM produtos
+            WHERE id = ?
+        """, (
+            produto_id,
+        ))
+
+        excluido = cursor.rowcount > 0
+
+        if not excluido:
+
+            conn.rollback()
+            conn.close()
+
+            return False
+
+        conn.commit()
+        conn.close()
+
+        return True
+
+    except Exception:
+
+        conn.rollback()
+        conn.close()
+
+        raise
 
 
 def atualizar_estoque(
@@ -412,13 +496,11 @@ def atualizar_estoque(
         SET estoque = ?
         WHERE id = ?
     """, (
-        estoque,
+        int(estoque),
         produto_id,
     ))
 
-    alterado = (
-        cursor.rowcount > 0
-    )
+    alterado = cursor.rowcount > 0
 
     conn.commit()
     conn.close()
@@ -452,9 +534,7 @@ def listar_categorias():
     return categorias
 
 
-def buscar_categoria(
-    categoria_id,
-):
+def buscar_categoria(categoria_id):
 
     conn = conectar()
     cursor = conn.cursor()
@@ -478,9 +558,7 @@ def buscar_categoria(
     return categoria
 
 
-def buscar_categoria_por_nome(
-    nome,
-):
+def buscar_categoria_por_nome(nome):
 
     conn = conectar()
     cursor = conn.cursor()
@@ -615,7 +693,7 @@ def adicionar_login(
             VALUES (?, ?, 'disponivel')
         """, (
             produto_id,
-            dados,
+            str(dados).strip(),
         ))
 
         login_id = cursor.lastrowid
@@ -628,6 +706,14 @@ def adicionar_login(
             produto_id,
         ))
 
+        if cursor.rowcount != 1:
+
+            conn.rollback()
+
+            raise ValueError(
+                "Produto não encontrado."
+            )
+
         conn.commit()
 
         return login_id
@@ -635,7 +721,6 @@ def adicionar_login(
     except Exception:
 
         conn.rollback()
-
         raise
 
     finally:
@@ -690,6 +775,12 @@ def adicionar_varios_logins(
                 produto_id,
             ))
 
+            if cursor.rowcount != 1:
+
+                raise ValueError(
+                    "Produto não encontrado."
+                )
+
         conn.commit()
 
         return adicionados
@@ -697,7 +788,6 @@ def adicionar_varios_logins(
     except Exception:
 
         conn.rollback()
-
         raise
 
     finally:
@@ -752,8 +842,7 @@ def consultar_estoque_logins(
     conn.close()
 
     if resultado:
-
-        return resultado[0]
+        return int(resultado[0])
 
     return 0
 
@@ -772,10 +861,6 @@ def retirar_login_disponivel(
         cursor.execute(
             "BEGIN IMMEDIATE"
         )
-
-        # -------------------------------------------------
-        # BUSCAR UM LOGIN DISPONÍVEL
-        # -------------------------------------------------
 
         cursor.execute("""
             SELECT
@@ -802,10 +887,6 @@ def retirar_login_disponivel(
         login_id = login[0]
         dados = login[1]
 
-        # -------------------------------------------------
-        # MARCAR COMO VENDIDO
-        # -------------------------------------------------
-
         cursor.execute("""
             UPDATE logins
             SET status = 'vendido',
@@ -826,10 +907,6 @@ def retirar_login_disponivel(
             conn.close()
 
             return None
-
-        # -------------------------------------------------
-        # DIMINUIR ESTOQUE
-        # -------------------------------------------------
 
         cursor.execute("""
             UPDATE produtos
@@ -858,302 +935,7 @@ def retirar_login_disponivel(
         raise
 
 
-# =========================================================
-# COMPRA SEGURA DE LOGIN
-#
-# Esta função:
-#
-# 1. trava a transação;
-# 2. verifica produto;
-# 3. verifica saldo;
-# 4. pega UM login disponível;
-# 5. desconta o saldo;
-# 6. cria o pedido;
-# 7. marca o login como vendido;
-# 8. diminui o estoque;
-# 9. confirma tudo junto.
-#
-# Se alguma etapa falhar, nada é alterado.
-# =========================================================
-
-def processar_compra_login(
-    usuario_id,
-    produto_id,
-):
-
-    conn = conectar()
-    cursor = conn.cursor()
-
-    try:
-
-        cursor.execute(
-            "BEGIN IMMEDIATE"
-        )
-
-        # -------------------------------------------------
-        # BUSCAR PRODUTO
-        # -------------------------------------------------
-
-        cursor.execute("""
-            SELECT
-                id,
-                nome,
-                descricao,
-                preco,
-                estoque
-            FROM produtos
-            WHERE id = ?
-        """, (
-            produto_id,
-        ))
-
-        produto = cursor.fetchone()
-
-        if not produto:
-
-            conn.rollback()
-            conn.close()
-
-            return {
-                "sucesso": False,
-                "erro": "produto_nao_encontrado",
-            }
-
-        produto_id_db = produto[0]
-        nome = produto[1]
-        descricao = produto[2]
-        preco = float(produto[3])
-        estoque = int(produto[4])
-
-        # -------------------------------------------------
-        # BUSCAR SALDO
-        # -------------------------------------------------
-
-        cursor.execute("""
-            SELECT saldo
-            FROM usuarios
-            WHERE id = ?
-        """, (
-            usuario_id,
-        ))
-
-        usuario = cursor.fetchone()
-
-        if not usuario:
-
-            conn.rollback()
-            conn.close()
-
-            return {
-                "sucesso": False,
-                "erro": "usuario_nao_encontrado",
-            }
-
-        saldo = float(
-            usuario[0]
-        )
-
-        # -------------------------------------------------
-        # VERIFICAR SALDO
-        # -------------------------------------------------
-
-        if saldo < preco:
-
-            conn.rollback()
-            conn.close()
-
-            return {
-                "sucesso": False,
-                "erro": "saldo_insuficiente",
-                "saldo": saldo,
-                "preco": preco,
-                "faltam": preco - saldo,
-            }
-
-        # -------------------------------------------------
-        # BUSCAR LOGIN
-        # -------------------------------------------------
-
-        cursor.execute("""
-            SELECT
-                id,
-                dados
-            FROM logins
-            WHERE produto_id = ?
-            AND status = 'disponivel'
-            ORDER BY id
-            LIMIT 1
-        """, (
-            produto_id_db,
-        ))
-
-        login = cursor.fetchone()
-
-        if not login:
-
-            conn.rollback()
-            conn.close()
-
-            return {
-                "sucesso": False,
-                "erro": "login_indisponivel",
-            }
-
-        login_id = login[0]
-        dados = login[1]
-
-        # -------------------------------------------------
-        # DESCONTAR SALDO
-        # -------------------------------------------------
-
-        cursor.execute("""
-            UPDATE usuarios
-            SET saldo = saldo - ?
-            WHERE id = ?
-            AND saldo >= ?
-        """, (
-            preco,
-            usuario_id,
-            preco,
-        ))
-
-        if cursor.rowcount != 1:
-
-            conn.rollback()
-            conn.close()
-
-            return {
-                "sucesso": False,
-                "erro": "saldo_insuficiente",
-            }
-
-        # -------------------------------------------------
-        # CRIAR PEDIDO
-        # -------------------------------------------------
-
-        cursor.execute("""
-            INSERT INTO pedidos
-            (
-                usuario_id,
-                produto_id,
-                quantidade,
-                valor,
-                status
-            )
-            VALUES (?, ?, 1, ?, 'pago')
-        """, (
-            usuario_id,
-            produto_id_db,
-            preco,
-        ))
-
-        pedido_id = cursor.lastrowid
-
-        # -------------------------------------------------
-        # MARCAR LOGIN COMO VENDIDO
-        # -------------------------------------------------
-
-        cursor.execute("""
-            UPDATE logins
-            SET status = 'vendido',
-                usuario_id = ?,
-                pedido_id = ?,
-                vendido_em = CURRENT_TIMESTAMP
-            WHERE id = ?
-            AND status = 'disponivel'
-        """, (
-            usuario_id,
-            pedido_id,
-            login_id,
-        ))
-
-        if cursor.rowcount != 1:
-
-            conn.rollback()
-            conn.close()
-
-            return {
-                "sucesso": False,
-                "erro": "login_indisponivel",
-            }
-
-        # -------------------------------------------------
-        # DIMINUIR ESTOQUE
-        # -------------------------------------------------
-
-        cursor.execute("""
-            UPDATE produtos
-            SET estoque = CASE
-                WHEN estoque > 0 THEN estoque - 1
-                ELSE 0
-            END
-            WHERE id = ?
-            AND estoque > 0
-        """, (
-            produto_id_db,
-        ))
-
-        if cursor.rowcount != 1:
-
-            conn.rollback()
-            conn.close()
-
-            return {
-                "sucesso": False,
-                "erro": "estoque_indisponivel",
-            }
-
-        # -------------------------------------------------
-        # NOVO SALDO
-        # -------------------------------------------------
-
-        cursor.execute("""
-            SELECT saldo
-            FROM usuarios
-            WHERE id = ?
-        """, (
-            usuario_id,
-        ))
-
-        novo_saldo_resultado = (
-            cursor.fetchone()
-        )
-
-        novo_saldo = float(
-            novo_saldo_resultado[0]
-        )
-
-        # -------------------------------------------------
-        # CONFIRMAR TUDO
-        # -------------------------------------------------
-
-        conn.commit()
-        conn.close()
-
-        return {
-            "sucesso": True,
-            "pedido_id": pedido_id,
-            "login_id": login_id,
-            "dados": dados,
-            "produto_id": produto_id_db,
-            "nome": nome,
-            "descricao": descricao,
-            "preco": preco,
-            "saldo_anterior": saldo,
-            "novo_saldo": novo_saldo,
-        }
-
-    except Exception:
-
-        conn.rollback()
-        conn.close()
-
-        raise
-
-
-def consultar_login(
-    login_id,
-):
+def consultar_login(login_id):
 
     conn = conectar()
     cursor = conn.cursor()
@@ -1180,66 +962,75 @@ def consultar_login(
     return login
 
 
-def excluir_login(
-    login_id,
-):
+def excluir_login(login_id):
 
     conn = conectar()
     cursor = conn.cursor()
 
-    cursor.execute("""
-        SELECT
-            produto_id,
-            status
-        FROM logins
-        WHERE id = ?
-    """, (
-        login_id,
-    ))
+    try:
 
-    login = cursor.fetchone()
-
-    if not login:
-
-        conn.close()
-
-        return False
-
-    produto_id = login[0]
-    status = login[1]
-
-    cursor.execute("""
-        DELETE FROM logins
-        WHERE id = ?
-    """, (
-        login_id,
-    ))
-
-    excluido = (
-        cursor.rowcount > 0
-    )
-
-    # -----------------------------------------------------
-    # SE ESTAVA DISPONÍVEL, DIMINUI ESTOQUE
-    # -----------------------------------------------------
-
-    if excluido and status == "disponivel":
+        cursor.execute(
+            "BEGIN IMMEDIATE"
+        )
 
         cursor.execute("""
-            UPDATE produtos
-            SET estoque = CASE
-                WHEN estoque > 0 THEN estoque - 1
-                ELSE 0
-            END
+            SELECT
+                produto_id,
+                status
+            FROM logins
             WHERE id = ?
         """, (
-            produto_id,
+            login_id,
         ))
 
-    conn.commit()
-    conn.close()
+        login = cursor.fetchone()
 
-    return excluido
+        if not login:
+
+            conn.rollback()
+            conn.close()
+
+            return False
+
+        produto_id = login[0]
+        status = login[1]
+
+        cursor.execute("""
+            DELETE FROM logins
+            WHERE id = ?
+        """, (
+            login_id,
+        ))
+
+        excluido = cursor.rowcount > 0
+
+        if (
+            excluido
+            and status == "disponivel"
+        ):
+
+            cursor.execute("""
+                UPDATE produtos
+                SET estoque = CASE
+                    WHEN estoque > 0 THEN estoque - 1
+                    ELSE 0
+                END
+                WHERE id = ?
+            """, (
+                produto_id,
+            ))
+
+        conn.commit()
+        conn.close()
+
+        return excluido
+
+    except Exception:
+
+        conn.rollback()
+        conn.close()
+
+        raise
 
 
 def listar_logins_produto(
@@ -1283,8 +1074,7 @@ def contar_logins_produto(
     cursor = conn.cursor()
 
     cursor.execute("""
-        SELECT
-            COUNT(*)
+        SELECT COUNT(*)
         FROM logins
         WHERE produto_id = ?
     """, (
@@ -1309,8 +1099,7 @@ def contar_logins_vendidos(
     cursor = conn.cursor()
 
     cursor.execute("""
-        SELECT
-            COUNT(*)
+        SELECT COUNT(*)
         FROM logins
         WHERE produto_id = ?
         AND status = 'vendido'
@@ -1326,6 +1115,250 @@ def contar_logins_vendidos(
         return int(resultado[0])
 
     return 0
+
+
+# =========================================================
+# COMPRA SEGURA DE LOGIN
+# =========================================================
+
+def processar_compra_login(
+    usuario_id,
+    produto_id,
+):
+
+    conn = conectar()
+    cursor = conn.cursor()
+
+    try:
+
+        cursor.execute(
+            "BEGIN IMMEDIATE"
+        )
+
+        cursor.execute("""
+            SELECT
+                id,
+                nome,
+                descricao,
+                preco,
+                estoque
+            FROM produtos
+            WHERE id = ?
+        """, (
+            produto_id,
+        ))
+
+        produto = cursor.fetchone()
+
+        if not produto:
+
+            conn.rollback()
+            conn.close()
+
+            return {
+                "sucesso": False,
+                "erro": "produto_nao_encontrado",
+            }
+
+        produto_id_db = produto[0]
+        nome = produto[1]
+        descricao = produto[2]
+        preco = float(produto[3])
+        estoque = int(produto[4])
+
+        if estoque <= 0:
+
+            conn.rollback()
+            conn.close()
+
+            return {
+                "sucesso": False,
+                "erro": "estoque_indisponivel",
+            }
+
+        cursor.execute("""
+            SELECT saldo
+            FROM usuarios
+            WHERE id = ?
+        """, (
+            usuario_id,
+        ))
+
+        usuario = cursor.fetchone()
+
+        if not usuario:
+
+            conn.rollback()
+            conn.close()
+
+            return {
+                "sucesso": False,
+                "erro": "usuario_nao_encontrado",
+            }
+
+        saldo = float(
+            usuario[0]
+        )
+
+        if saldo < preco:
+
+            conn.rollback()
+            conn.close()
+
+            return {
+                "sucesso": False,
+                "erro": "saldo_insuficiente",
+                "saldo": saldo,
+                "preco": preco,
+                "faltam": preco - saldo,
+            }
+
+        cursor.execute("""
+            SELECT
+                id,
+                dados
+            FROM logins
+            WHERE produto_id = ?
+            AND status = 'disponivel'
+            ORDER BY id
+            LIMIT 1
+        """, (
+            produto_id_db,
+        ))
+
+        login = cursor.fetchone()
+
+        if not login:
+
+            conn.rollback()
+            conn.close()
+
+            return {
+                "sucesso": False,
+                "erro": "login_indisponivel",
+            }
+
+        login_id = login[0]
+        dados = login[1]
+
+        cursor.execute("""
+            UPDATE usuarios
+            SET saldo = saldo - ?
+            WHERE id = ?
+            AND saldo >= ?
+        """, (
+            preco,
+            usuario_id,
+            preco,
+        ))
+
+        if cursor.rowcount != 1:
+
+            conn.rollback()
+            conn.close()
+
+            return {
+                "sucesso": False,
+                "erro": "saldo_insuficiente",
+            }
+
+        cursor.execute("""
+            INSERT INTO pedidos
+            (
+                usuario_id,
+                produto_id,
+                quantidade,
+                valor,
+                status
+            )
+            VALUES (?, ?, 1, ?, 'pago')
+        """, (
+            usuario_id,
+            produto_id_db,
+            preco,
+        ))
+
+        pedido_id = cursor.lastrowid
+
+        cursor.execute("""
+            UPDATE logins
+            SET status = 'vendido',
+                usuario_id = ?,
+                pedido_id = ?,
+                vendido_em = CURRENT_TIMESTAMP
+            WHERE id = ?
+            AND status = 'disponivel'
+        """, (
+            usuario_id,
+            pedido_id,
+            login_id,
+        ))
+
+        if cursor.rowcount != 1:
+
+            conn.rollback()
+            conn.close()
+
+            return {
+                "sucesso": False,
+                "erro": "login_indisponivel",
+            }
+
+        cursor.execute("""
+            UPDATE produtos
+            SET estoque = estoque - 1
+            WHERE id = ?
+            AND estoque > 0
+        """, (
+            produto_id_db,
+        ))
+
+        if cursor.rowcount != 1:
+
+            conn.rollback()
+            conn.close()
+
+            return {
+                "sucesso": False,
+                "erro": "estoque_indisponivel",
+            }
+
+        cursor.execute("""
+            SELECT saldo
+            FROM usuarios
+            WHERE id = ?
+        """, (
+            usuario_id,
+        ))
+
+        novo_saldo_resultado = cursor.fetchone()
+
+        novo_saldo = float(
+            novo_saldo_resultado[0]
+        )
+
+        conn.commit()
+        conn.close()
+
+        return {
+            "sucesso": True,
+            "pedido_id": pedido_id,
+            "login_id": login_id,
+            "dados": dados,
+            "produto_id": produto_id_db,
+            "nome": nome,
+            "descricao": descricao,
+            "preco": preco,
+            "saldo_anterior": saldo,
+            "novo_saldo": novo_saldo,
+        }
+
+    except Exception:
+
+        conn.rollback()
+        conn.close()
+
+        raise
 
 
 # =========================================================
@@ -1412,16 +1445,13 @@ def criar_pagamento(
         VALUES (?, ?, ?, 'pendente')
     """, (
         usuario_id,
-        valor,
+        float(valor),
         pushinpay_id,
     ))
 
+    pagamento_id = cursor.lastrowid
+
     conn.commit()
-
-    pagamento_id = (
-        cursor.lastrowid
-    )
-
     conn.close()
 
     return pagamento_id
@@ -1473,19 +1503,13 @@ def atualizar_status_pagamento(
         pushinpay_id,
     ))
 
-    alterado = (
-        cursor.rowcount > 0
-    )
+    alterado = cursor.rowcount > 0
 
     conn.commit()
     conn.close()
 
     return alterado
 
-
-# =========================================================
-# PAGAMENTOS PENDENTES
-# =========================================================
 
 def listar_pagamentos_pendentes():
 
@@ -1505,18 +1529,12 @@ def listar_pagamentos_pendentes():
         ORDER BY id ASC
     """)
 
-    pagamentos = (
-        cursor.fetchall()
-    )
+    pagamentos = cursor.fetchall()
 
     conn.close()
 
     return pagamentos
 
-
-# =========================================================
-# CONFIRMAR PAGAMENTO COM SEGURANÇA
-# =========================================================
 
 def processar_pagamento_pago(
     pushinpay_id,
@@ -1542,9 +1560,7 @@ def processar_pagamento_pago(
             pushinpay_id,
         ))
 
-        pagamento = (
-            cursor.fetchone()
-        )
+        pagamento = cursor.fetchone()
 
         if not pagamento:
 
@@ -1554,19 +1570,8 @@ def processar_pagamento_pago(
             return None
 
         usuario_id = pagamento[0]
-
-        valor = float(
-            pagamento[1]
-        )
-
+        valor = float(pagamento[1])
         status = pagamento[2]
-
-        if status == "pago":
-
-            conn.rollback()
-            conn.close()
-
-            return None
 
         if status != "pendente":
 
@@ -1623,10 +1628,6 @@ def processar_pagamento_pago(
         raise
 
 
-# =========================================================
-# PAGAMENTOS DO USUÁRIO
-# =========================================================
-
 def listar_pagamentos_usuario(
     user_id,
 ):
@@ -1648,9 +1649,7 @@ def listar_pagamentos_usuario(
         user_id,
     ))
 
-    pagamentos = (
-        cursor.fetchall()
-    )
+    pagamentos = cursor.fetchall()
 
     conn.close()
 
