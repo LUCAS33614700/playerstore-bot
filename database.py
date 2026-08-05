@@ -143,8 +143,99 @@ def criar_tabelas():
         )
     """)
 
+    # -----------------------------------------------------
+    # CONFIGURAÇÕES (chave/valor)
+    # -----------------------------------------------------
+    # Usada para guardar coisas ajustáveis pelo admin sem
+    # precisar mexer no código, como a imagem do catálogo.
+
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS configuracoes (
+            chave TEXT PRIMARY KEY,
+            valor TEXT
+        )
+    """)
+
     conn.commit()
     conn.close()
+
+
+# =========================================================
+# CONFIGURAÇÕES (CHAVE / VALOR)
+# =========================================================
+
+def definir_configuracao(
+    chave,
+    valor,
+):
+
+    conn = conectar()
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        INSERT INTO configuracoes
+        (
+            chave,
+            valor
+        )
+        VALUES (?, ?)
+        ON CONFLICT(chave)
+        DO UPDATE SET valor = excluded.valor
+    """, (
+        chave,
+        valor,
+    ))
+
+    conn.commit()
+    conn.close()
+
+
+def obter_configuracao(
+    chave,
+    padrao=None,
+):
+
+    conn = conectar()
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        SELECT valor
+        FROM configuracoes
+        WHERE chave = ?
+    """, (
+        chave,
+    ))
+
+    resultado = cursor.fetchone()
+
+    conn.close()
+
+    if resultado:
+        return resultado[0]
+
+    return padrao
+
+
+def remover_configuracao(
+    chave,
+):
+
+    conn = conectar()
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        DELETE FROM configuracoes
+        WHERE chave = ?
+    """, (
+        chave,
+    ))
+
+    removido = cursor.rowcount > 0
+
+    conn.commit()
+    conn.close()
+
+    return removido
 
 
 # =========================================================
