@@ -39,6 +39,8 @@ from database import (
     listar_pagamentos_pendentes,
     processar_pagamento_pago,
     retirar_login_disponivel,
+    listar_todos_produtos,
+    consultar_estoque_logins,
 )
 
 from menu import menu_principal
@@ -1187,6 +1189,75 @@ async def parar_verificador(
 
 
 # =========================================================
+# ESTOQUE PÚBLICO DE LOGINS
+# =========================================================
+
+async def mostrar_estoque_logins(
+    query,
+):
+    produtos = listar_todos_produtos()
+
+    if not produtos:
+        texto = (
+            "📦 *ESTOQUE DE LOGINS*\n\n"
+            "❌ Nenhum produto cadastrado no momento."
+        )
+
+    else:
+        texto = (
+            "📦 *ESTOQUE DE LOGINS*\n\n"
+            "Quantidade de contas disponíveis "
+            "por produto:\n\n"
+        )
+
+        for produto in produtos:
+
+            produto_id = produto[0]
+            nome = produto[1]
+
+            quantidade = consultar_estoque_logins(
+                produto_id
+            )
+
+            if quantidade > 0:
+                status_emoji = "✅"
+            else:
+                status_emoji = "❌"
+
+            texto += (
+                f"{status_emoji} *{nome}*\n"
+                f"📊 Disponível: {quantidade}\n\n"
+            )
+
+    await query.edit_message_text(
+        texto,
+        reply_markup=InlineKeyboardMarkup(
+            [
+                [
+                    InlineKeyboardButton(
+                        "🔄 ATUALIZAR",
+                        callback_data="estoque_logins",
+                    )
+                ],
+                [
+                    InlineKeyboardButton(
+                        "🛒 VER CATÁLOGO",
+                        callback_data="catalogo",
+                    )
+                ],
+                [
+                    InlineKeyboardButton(
+                        "↩️ VOLTAR AO MENU",
+                        callback_data="voltar_menu",
+                    )
+                ],
+            ]
+        ),
+        parse_mode="Markdown",
+    )
+
+
+# =========================================================
 # STATUS DO PAGAMENTO
 # =========================================================
 
@@ -1308,6 +1379,16 @@ async def botoes(
         await verificar_pagamento(
             query,
             transacao_id,
+        )
+        return
+
+    # =====================================================
+    # ESTOQUE DE LOGINS (PÚBLICO)
+    # =====================================================
+
+    if acao == "estoque_logins":
+        await mostrar_estoque_logins(
+            query,
         )
         return
 
