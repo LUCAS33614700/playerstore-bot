@@ -21,6 +21,9 @@ from database import (
     excluir_produto,
     listar_categorias,
     definir_categoria_produto,
+    definir_configuracao,
+    obter_configuracao,
+    remover_configuracao,
 )
 
 
@@ -128,6 +131,13 @@ def menu_admin():
             InlineKeyboardButton(
                 "➕ NOVO PRODUTO",
                 callback_data="admin_novo_produto",
+            )
+        ],
+
+        [
+            InlineKeyboardButton(
+                "🖼️ IMAGEM DO CATÁLOGO",
+                callback_data="admin_imagem_catalogo",
             )
         ],
 
@@ -1220,6 +1230,191 @@ async def admin_estoque(
 
 
 # =========================================================
+# IMAGEM DO CATÁLOGO
+# =========================================================
+
+async def iniciar_imagem_catalogo(
+    query,
+    context,
+):
+
+    if not await verificar_admin_query(query):
+
+        return
+
+    limpar_estado(context)
+
+    context.user_data[
+        "admin_acao"
+    ] = "aguardando_imagem_catalogo"
+
+    imagem_atual = obter_configuracao(
+        "imagem_catalogo_id"
+    )
+
+    texto = (
+        "🖼️ *IMAGEM DO CATÁLOGO*\n\n"
+        "Envie agora uma foto ou GIF "
+        "para aparecer no topo do catálogo "
+        "(antes de \"Selecione a categoria\").\n\n"
+    )
+
+    if imagem_atual:
+        texto += "✅ Já existe uma imagem configurada.\n\n"
+
+    texto += "⬅️ Para cancelar, clique no botão abaixo."
+
+    botoes = [
+        [
+            InlineKeyboardButton(
+                "❌ CANCELAR",
+                callback_data="admin_menu",
+            )
+        ]
+    ]
+
+    if imagem_atual:
+
+        botoes.insert(
+            0,
+            [
+                InlineKeyboardButton(
+                    "🗑️ REMOVER IMAGEM ATUAL",
+                    callback_data="admin_remover_imagem_catalogo",
+                )
+            ],
+        )
+
+    await query.edit_message_text(
+        texto,
+        reply_markup=InlineKeyboardMarkup(
+            botoes
+        ),
+        parse_mode="Markdown",
+    )
+
+
+# =========================================================
+# PROCESSAR MÍDIA (FOTO OU GIF) DO ADMIN
+# =========================================================
+
+async def processar_admin_midia(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+):
+
+    usuario = update.effective_user
+
+    if not usuario or not is_admin(usuario.id):
+
+        return False
+
+    acao = context.user_data.get(
+        "admin_acao"
+    )
+
+    if acao != "aguardando_imagem_catalogo":
+
+        return False
+
+    if not update.message:
+
+        return True
+
+    file_id = None
+    tipo = None
+
+    if update.message.photo:
+
+        file_id = update.message.photo[-1].file_id
+        tipo = "photo"
+
+    elif update.message.animation:
+
+        file_id = update.message.animation.file_id
+        tipo = "animation"
+
+    if not file_id:
+
+        await update.message.reply_text(
+            "❌ Envie uma foto ou um GIF."
+        )
+
+        return True
+
+    definir_configuracao(
+        "imagem_catalogo_id",
+        file_id,
+    )
+
+    definir_configuracao(
+        "imagem_catalogo_tipo",
+        tipo,
+    )
+
+    limpar_estado(context)
+
+    await update.message.reply_text(
+        "✅ *IMAGEM DO CATÁLOGO ATUALIZADA!*\n\n"
+        "Ela vai aparecer no topo do catálogo "
+        "a partir de agora.",
+        reply_markup=InlineKeyboardMarkup(
+            [
+                [
+                    InlineKeyboardButton(
+                        "👑 PAINEL ADMIN",
+                        callback_data="admin_menu",
+                    )
+                ]
+            ]
+        ),
+        parse_mode="Markdown",
+    )
+
+    return True
+
+
+# =========================================================
+# REMOVER IMAGEM DO CATÁLOGO
+# =========================================================
+
+async def remover_imagem_catalogo(
+    query,
+    context,
+):
+
+    if not await verificar_admin_query(query):
+
+        return
+
+    remover_configuracao(
+        "imagem_catalogo_id"
+    )
+
+    remover_configuracao(
+        "imagem_catalogo_tipo"
+    )
+
+    limpar_estado(context)
+
+    await query.edit_message_text(
+        "✅ Imagem do catálogo removida.\n\n"
+        "O catálogo volta a mostrar somente texto.",
+        reply_markup=InlineKeyboardMarkup(
+            [
+                [
+                    InlineKeyboardButton(
+                        "👑 PAINEL ADMIN",
+                        callback_data="admin_menu",
+                    )
+                ]
+            ]
+        ),
+        parse_mode="Markdown",
+    )
+
+
+# =========================================================
 # NOVO PRODUTO
 # =========================================================
 
@@ -1537,6 +1732,28 @@ async def botoes_admin(
     if acao == "admin_novo_produto":
 
         await iniciar_novo_produto(
+            query,
+            context,
+        )
+
+        return
+
+    # =====================================================
+    # IMAGEM DO CATÁLOGO
+    # =====================================================
+
+    if acao == "admin_imagem_catalogo":
+
+        await iniciar_imagem_catalogo(
+            query,
+            context,
+        )
+
+        return
+
+    if acao == "admin_remover_imagem_catalogo":
+
+        await remover_imagem_catalogo(
             query,
             context,
         )
