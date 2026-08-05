@@ -172,12 +172,32 @@ async def comprar_produto(
     saldo = float(consultar_saldo(usuario_id) or 0)
 
     if saldo < valor_total:
-        await query.answer(
-            f"❌ Saldo insuficiente.\n\n"
-            f"💰 Seu saldo: R$ {saldo:.2f}\n"
-            f"🛒 Total: R$ {valor_total:.2f}\n\n"
-            f"💵 Faltam: R$ {valor_total - saldo:.2f}",
-            show_alert=True,
+        await query.edit_message_text(
+            "❌ *SALDO INSUFICIENTE*\n\n"
+            "━━━━━━━━━━━━━━━━━━\n"
+            f"🛒 *Produto:* {nome}\n"
+            f"💰 *Total:* R$ {valor_total:.2f}\n"
+            f"💳 *Seu saldo:* R$ {saldo:.2f}\n"
+            f"💵 *Faltam:* R$ {valor_total - saldo:.2f}\n"
+            "━━━━━━━━━━━━━━━━━━\n\n"
+            "Adicione saldo para concluir a compra.",
+            reply_markup=InlineKeyboardMarkup(
+                [
+                    [
+                        InlineKeyboardButton(
+                            "💵 ADICIONAR SALDO",
+                            callback_data="adicionar_saldo",
+                        )
+                    ],
+                    [
+                        InlineKeyboardButton(
+                            "⬅️ Voltar ao produto",
+                            callback_data=f"produto_{produto_id}",
+                        )
+                    ],
+                ]
+            ),
+            parse_mode="Markdown",
         )
         return
 
