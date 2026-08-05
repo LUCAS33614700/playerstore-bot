@@ -41,10 +41,16 @@ from database import (
     retirar_login_disponivel,
     listar_todos_produtos,
     consultar_estoque_logins,
+    buscar_categoria,
 )
 
 from menu import menu_principal
-from catalogo import menu_catalogo, buscar_produto
+from catalogo import (
+    menu_catalogo,
+    menu_categorias,
+    menu_produtos_categoria,
+    buscar_produto,
+)
 from pushinpay import criar_pix, consultar_pix
 
 from admin import (
@@ -1393,7 +1399,7 @@ async def botoes(
         return
 
     # =====================================================
-    # CATÁLOGO
+    # CATÁLOGO (CATEGORIAS)
     # =====================================================
 
     if acao == "catalogo":
@@ -1402,8 +1408,48 @@ async def botoes(
 
         await query.edit_message_text(
             "🛒 *LOGINS | CONTAS PREMIUM*\n\n"
+            "Selecione a categoria:",
+            reply_markup=menu_categorias(),
+            parse_mode="Markdown",
+        )
+        return
+
+    # =====================================================
+    # PRODUTOS DE UMA CATEGORIA
+    # =====================================================
+
+    if acao.startswith("categoria_"):
+        try:
+            categoria_id = int(
+                acao.split("_", 1)[1]
+            )
+        except (ValueError, IndexError):
+            await query.answer(
+                "❌ Categoria inválida.",
+                show_alert=True,
+            )
+            return
+
+        categoria = buscar_categoria(
+            categoria_id
+        )
+
+        if not categoria:
+            await query.answer(
+                "❌ Categoria não encontrada.",
+                show_alert=True,
+            )
+            return
+
+        emoji = categoria[2]
+        nome_categoria = categoria[1]
+
+        await query.edit_message_text(
+            f"{emoji} *{nome_categoria.upper()}*\n\n"
             "Escolha um produto:",
-            reply_markup=menu_catalogo(),
+            reply_markup=menu_produtos_categoria(
+                categoria_id
+            ),
             parse_mode="Markdown",
         )
         return
