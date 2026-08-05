@@ -42,6 +42,7 @@ from database import (
     listar_todos_produtos,
     consultar_estoque_logins,
     buscar_categoria,
+    obter_configuracao,
 )
 
 from menu import menu_principal
@@ -57,6 +58,7 @@ from admin import (
     comando_admin,
     botoes_admin,
     processar_admin_texto,
+    processar_admin_midia,
 )
 
 
@@ -869,6 +871,26 @@ async def processar_valor_saldo(
 
 
 # =========================================================
+# PROCESSAR MÍDIA (FOTOS / GIFS)
+# =========================================================
+
+async def processar_midia_generico(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+):
+    try:
+        await processar_admin_midia(
+            update,
+            context,
+        )
+    except Exception as erro:
+        print(
+            "ERRO NO PROCESSAMENTO DE MÍDIA ADMIN:",
+            repr(erro),
+        )
+
+
+# =========================================================
 # PROCESSAR TEXTO
 # =========================================================
 
@@ -1406,9 +1428,58 @@ async def botoes(
         context.user_data["aguardando_quantidade"] = False
         context.user_data["aguardando_valor"] = False
 
-        await query.edit_message_text(
+        texto_catalogo = (
             "🛒 *LOGINS | CONTAS PREMIUM*\n\n"
-            "Selecione a categoria:",
+            "Selecione a categoria:"
+        )
+
+        imagem_id = obter_configuracao(
+            "imagem_catalogo_id"
+        )
+        imagem_tipo = obter_configuracao(
+            "imagem_catalogo_tipo"
+        )
+
+        if imagem_id:
+
+            try:
+                await query.message.delete()
+            except Exception:
+                pass
+
+            try:
+                if imagem_tipo == "animation":
+                    await context.bot.send_animation(
+                        chat_id=usuario_id,
+                        animation=imagem_id,
+                        caption=texto_catalogo,
+                        reply_markup=menu_categorias(),
+                        parse_mode="Markdown",
+                    )
+                else:
+                    await context.bot.send_photo(
+                        chat_id=usuario_id,
+                        photo=imagem_id,
+                        caption=texto_catalogo,
+                        reply_markup=menu_categorias(),
+                        parse_mode="Markdown",
+                    )
+                return
+            except Exception as erro:
+                print(
+                    "ERRO AO ENVIAR IMAGEM DO CATÁLOGO:",
+                    repr(erro),
+                )
+                await context.bot.send_message(
+                    chat_id=usuario_id,
+                    text=texto_catalogo,
+                    reply_markup=menu_categorias(),
+                    parse_mode="Markdown",
+                )
+                return
+
+        await query.edit_message_text(
+            texto_catalogo,
             reply_markup=menu_categorias(),
             parse_mode="Markdown",
         )
@@ -1878,6 +1949,13 @@ def main():
     application.add_handler(
         CallbackQueryHandler(
             botoes
+        )
+    )
+
+    application.add_handler(
+        MessageHandler(
+            filters.PHOTO | filters.ANIMATION,
+            processar_midia_generico,
         )
     )
 
