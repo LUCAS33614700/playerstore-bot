@@ -19,6 +19,8 @@ from database import (
     alterar_preco,
     cadastrar_produto,
     excluir_produto,
+    listar_categorias,
+    definir_categoria_produto,
 )
 
 
@@ -160,6 +162,18 @@ def limpar_estado(context):
 
     context.user_data[
         "admin_dados_conta"
+    ] = None
+
+    context.user_data[
+        "admin_novo_nome"
+    ] = None
+
+    context.user_data[
+        "admin_novo_descricao"
+    ] = None
+
+    context.user_data[
+        "admin_novo_preco"
     ] = None
 
 
@@ -583,8 +597,6 @@ async def processar_admin_texto(
 
             return True
 
-        from database import alterar_preco
-
         sucesso = alterar_preco(
             produto_id,
             preco,
@@ -676,7 +688,7 @@ async def processar_admin_texto(
         return True
 
     # =====================================================
-    # PREÇO NOVO PRODUTO
+    # PREÇO NOVO PRODUTO → AGORA PEDE A CATEGORIA
     # =====================================================
 
     if acao == "novo_produto_preco":
@@ -703,55 +715,91 @@ async def processar_admin_texto(
 
             return True
 
-        nome = context.user_data.get(
-            "admin_novo_nome"
-        )
+        context.user_data[
+            "admin_novo_preco"
+        ] = preco
 
-        descricao = context.user_data.get(
-            "admin_novo_descricao"
-        )
+        context.user_data[
+            "admin_acao"
+        ] = "novo_produto_categoria"
 
-        produto_id = cadastrar_produto(
-            nome,
-            descricao,
-            preco,
-            0,
-        )
+        categorias = listar_categorias()
 
-        limpar_estado(context)
+        if not categorias:
+
+            # Sem categorias cadastradas: cadastra sem categoria.
+            nome = context.user_data.get(
+                "admin_novo_nome"
+            )
+
+            descricao = context.user_data.get(
+                "admin_novo_descricao"
+            )
+
+            produto_id = cadastrar_produto(
+                nome,
+                descricao,
+                preco,
+                0,
+            )
+
+            limpar_estado(context)
+
+            await update.message.reply_text(
+                "⚠️ Nenhuma categoria cadastrada. "
+                "O produto foi criado sem categoria.\n\n"
+                "✅ *PRODUTO CADASTRADO!*\n\n"
+                f"📦 {nome}\n"
+                f"💰 R$ {preco:.2f}\n"
+                f"🆔 ID: `{produto_id}`",
+                reply_markup=InlineKeyboardMarkup(
+                    [
+                        [
+                            InlineKeyboardButton(
+                                "➕ ADICIONAR CONTAS",
+                                callback_data=(
+                                    f"admin_add_login_{produto_id}"
+                                ),
+                            )
+                        ],
+                        [
+                            InlineKeyboardButton(
+                                "👑 PAINEL ADMIN",
+                                callback_data="admin_menu",
+                            )
+                        ],
+                    ]
+                ),
+                parse_mode="Markdown",
+            )
+
+            return True
+
+        botoes = []
+
+        for categoria in categorias:
+
+            categoria_id = categoria[0]
+            nome_categoria = categoria[1]
+            emoji = categoria[2]
+
+            botoes.append(
+                [
+                    InlineKeyboardButton(
+                        f"{emoji} {nome_categoria}",
+                        callback_data=(
+                            f"admin_categoria_produto_{categoria_id}"
+                        ),
+                    )
+                ]
+            )
 
         await update.message.reply_text(
-            "✅ *PRODUTO CADASTRADO!*\n\n"
-            f"📦 {nome}\n"
-            f"💰 R$ {preco:.2f}\n"
-            f"🆔 ID: `{produto_id}`\n\n"
-            "Agora você pode adicionar as contas "
-            "pelo painel.",
+            "🗂️ *CATEGORIA DO PRODUTO*\n\n"
+            "Escolha em qual categoria este produto "
+            "vai aparecer:",
             reply_markup=InlineKeyboardMarkup(
-                [
-                    [
-                        InlineKeyboardButton(
-                            "➕ ADICIONAR CONTAS",
-                            callback_data=(
-                                f"admin_add_login_{produto_id}"
-                            ),
-                        )
-                    ],
-                    [
-                        InlineKeyboardButton(
-                            "📦 GERENCIAR PRODUTO",
-                            callback_data=(
-                                f"admin_produto_{produto_id}"
-                            ),
-                        )
-                    ],
-                    [
-                        InlineKeyboardButton(
-                            "👑 PAINEL ADMIN",
-                            callback_data="admin_menu",
-                        )
-                    ],
-                ]
+                botoes
             ),
             parse_mode="Markdown",
         )
@@ -1210,6 +1258,106 @@ async def iniciar_novo_produto(
 
 
 # =========================================================
+# FINALIZAR CADASTRO DE PRODUTO COM CATEGORIA
+# =========================================================
+
+async def finalizar_novo_produto_com_categoria(
+    query,
+    context,
+    categoria_id,
+):
+
+    if not await verificar_admin_query(query):
+
+        return
+
+    if context.user_data.get(
+        "admin_acao"
+    ) != "novo_produto_categoria":
+
+        await query.answer(
+            "❌ Nenhum cadastro de produto em andamento.",
+            show_alert=True,
+        )
+
+        return
+
+    nome = context.user_data.get(
+        "admin_novo_nome"
+    )
+
+    descricao = context.user_data.get(
+        "admin_novo_descricao"
+    )
+
+    preco = context.user_data.get(
+        "admin_novo_preco"
+    )
+
+    if not nome or preco is None:
+
+        limpar_estado(context)
+
+        await query.answer(
+            "❌ Dados do produto incompletos. "
+            "Cadastre novamente.",
+            show_alert=True,
+        )
+
+        return
+
+    produto_id = cadastrar_produto(
+        nome,
+        descricao,
+        preco,
+        0,
+    )
+
+    definir_categoria_produto(
+        produto_id,
+        categoria_id,
+    )
+
+    limpar_estado(context)
+
+    await query.edit_message_text(
+        "✅ *PRODUTO CADASTRADO!*\n\n"
+        f"📦 {nome}\n"
+        f"💰 R$ {float(preco):.2f}\n"
+        f"🆔 ID: `{produto_id}`\n\n"
+        "Agora você pode adicionar as contas "
+        "pelo painel.",
+        reply_markup=InlineKeyboardMarkup(
+            [
+                [
+                    InlineKeyboardButton(
+                        "➕ ADICIONAR CONTAS",
+                        callback_data=(
+                            f"admin_add_login_{produto_id}"
+                        ),
+                    )
+                ],
+                [
+                    InlineKeyboardButton(
+                        "📦 GERENCIAR PRODUTO",
+                        callback_data=(
+                            f"admin_produto_{produto_id}"
+                        ),
+                    )
+                ],
+                [
+                    InlineKeyboardButton(
+                        "👑 PAINEL ADMIN",
+                        callback_data="admin_menu",
+                    )
+                ],
+            ]
+        ),
+        parse_mode="Markdown",
+    )
+
+
+# =========================================================
 # CONFIRMAR EXCLUSÃO DE PRODUTO
 # =========================================================
 
@@ -1391,6 +1539,41 @@ async def botoes_admin(
         await iniciar_novo_produto(
             query,
             context,
+        )
+
+        return
+
+    # =====================================================
+    # CATEGORIA DO NOVO PRODUTO
+    # =====================================================
+
+    if acao.startswith(
+        "admin_categoria_produto_"
+    ):
+
+        try:
+
+            categoria_id = int(
+                acao.replace(
+                    "admin_categoria_produto_",
+                    "",
+                    1,
+                )
+            )
+
+        except ValueError:
+
+            await query.answer(
+                "❌ Categoria inválida.",
+                show_alert=True,
+            )
+
+            return
+
+        await finalizar_novo_produto_com_categoria(
+            query,
+            context,
+            categoria_id,
         )
 
         return
