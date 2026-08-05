@@ -1,5 +1,9 @@
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
-from database import conectar
+from database import (
+    conectar,
+    listar_categorias,
+    listar_produtos_categoria,
+)
 
 
 # =========================================================
@@ -11,6 +15,11 @@ from database import conectar
 #
 # Para alterar preço ou estoque posteriormente,
 # use o sistema de estoque/admin.
+#
+# IMPORTANTE: produtos cadastrados automaticamente aqui
+# não têm categoria definida. Use o painel admin para
+# associá-los a uma categoria (Telas, Contas, Outros),
+# ou eles não aparecerão no menu por categoria.
 # =========================================================
 
 PRODUTOS_PADRAO = [
@@ -153,7 +162,139 @@ def listar_produtos():
 
 
 # =========================================================
-# MENU DO CATÁLOGO
+# MENU DE CATEGORIAS
+# =========================================================
+
+def menu_categorias():
+
+    # Garante que os produtos padrão existam
+    cadastrar_produtos_automaticamente()
+
+    categorias = listar_categorias()
+
+    botoes = []
+
+    if not categorias:
+
+        botoes.append(
+            [
+                InlineKeyboardButton(
+                    "📦 Nenhuma categoria cadastrada",
+                    callback_data="sem_estoque",
+                )
+            ]
+        )
+
+    else:
+
+        for categoria in categorias:
+
+            categoria_id = categoria[0]
+            nome = categoria[1]
+            emoji = categoria[2]
+
+            produtos_categoria = listar_produtos_categoria(
+                categoria_id
+            )
+
+            quantidade = len(
+                produtos_categoria
+            )
+
+            botoes.append(
+                [
+                    InlineKeyboardButton(
+                        f"{emoji} {nome} ({quantidade})",
+                        callback_data=(
+                            f"categoria_{categoria_id}"
+                        ),
+                    )
+                ]
+            )
+
+    botoes.append(
+        [
+            InlineKeyboardButton(
+                "↩️ Voltar ao menu",
+                callback_data="voltar_menu",
+            )
+        ]
+    )
+
+    return InlineKeyboardMarkup(
+        botoes
+    )
+
+
+# =========================================================
+# MENU DE PRODUTOS DE UMA CATEGORIA
+# =========================================================
+
+def menu_produtos_categoria(
+    categoria_id,
+):
+
+    produtos = listar_produtos_categoria(
+        categoria_id
+    )
+
+    botoes = []
+
+    if not produtos:
+
+        botoes.append(
+            [
+                InlineKeyboardButton(
+                    "📦 Sem produtos nesta categoria",
+                    callback_data="sem_estoque",
+                )
+            ]
+        )
+
+    else:
+
+        for produto in produtos:
+
+            produto_id = produto[0]
+            nome = produto[1]
+            preco = float(produto[3])
+
+            botoes.append(
+                [
+                    InlineKeyboardButton(
+                        f"{nome} R${preco:.2f}",
+                        callback_data=(
+                            f"produto_{produto_id}"
+                        ),
+                    )
+                ]
+            )
+
+    botoes.append(
+        [
+            InlineKeyboardButton(
+                "⬅️ Voltar às categorias",
+                callback_data="catalogo",
+            )
+        ]
+    )
+
+    botoes.append(
+        [
+            InlineKeyboardButton(
+                "↩️ Voltar ao menu",
+                callback_data="voltar_menu",
+            )
+        ]
+    )
+
+    return InlineKeyboardMarkup(
+        botoes
+    )
+
+
+# =========================================================
+# MENU DO CATÁLOGO (LISTA GERAL - MANTIDO PARA COMPATIBILIDADE)
 # =========================================================
 
 def menu_catalogo():
