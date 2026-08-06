@@ -86,6 +86,57 @@ VERIFICADOR_TASK = "verificador_pagamentos_task"
 
 
 # =========================================================
+# ENVIAR MENU PRINCIPAL (COM BANNER, SE CADASTRADO)
+# =========================================================
+
+async def enviar_menu_principal(
+    chat_id,
+    context: ContextTypes.DEFAULT_TYPE,
+    texto,
+):
+
+    imagem_id = obter_configuracao(
+        "imagem_catalogo_id"
+    )
+    imagem_tipo = obter_configuracao(
+        "imagem_catalogo_tipo"
+    )
+
+    if imagem_id:
+
+        try:
+            if imagem_tipo == "animation":
+                await context.bot.send_animation(
+                    chat_id=chat_id,
+                    animation=imagem_id,
+                    caption=texto,
+                    reply_markup=menu_principal(),
+                    parse_mode="Markdown",
+                )
+            else:
+                await context.bot.send_photo(
+                    chat_id=chat_id,
+                    photo=imagem_id,
+                    caption=texto,
+                    reply_markup=menu_principal(),
+                    parse_mode="Markdown",
+                )
+            return
+        except Exception as erro:
+            print(
+                "ERRO AO ENVIAR BANNER DO MENU:",
+                repr(erro),
+            )
+
+    await context.bot.send_message(
+        chat_id=chat_id,
+        text=texto,
+        reply_markup=menu_principal(),
+        parse_mode="Markdown",
+    )
+
+
+# =========================================================
 # START
 # =========================================================
 
@@ -137,10 +188,10 @@ async def start(
     )
 
     if update.message:
-        await update.message.reply_text(
+        await enviar_menu_principal(
+            update.message.chat_id,
+            context,
             texto,
-            reply_markup=menu_principal(),
-            parse_mode="Markdown",
         )
 
 
@@ -2623,13 +2674,16 @@ async def botoes(
     if acao == "voltar_menu":
         context.user_data.clear()
 
-        await editar_ou_substituir(
-            query,
+        try:
+            await query.message.delete()
+        except Exception:
+            pass
+
+        await enviar_menu_principal(
+            query.message.chat_id,
             context,
             "🛒 *PLAYER STORE*\n\n"
             "Escolha uma opção abaixo:",
-            reply_markup=menu_principal(),
-            parse_mode="Markdown",
         )
         return
 
