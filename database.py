@@ -946,6 +946,38 @@ def listar_produtos_categoria(
     return produtos
 
 
+def buscar_produtos_por_nome(
+    termo,
+):
+
+    conn = conectar()
+    cursor = conn.cursor()
+
+    termo_like = f"%{termo}%"
+
+    cursor.execute("""
+        SELECT
+            id,
+            nome,
+            descricao,
+            preco,
+            estoque
+        FROM produtos
+        WHERE nome LIKE ?
+        COLLATE NOCASE
+        AND estoque > 0
+        ORDER BY nome
+    """, (
+        termo_like,
+    ))
+
+    produtos = cursor.fetchall()
+
+    conn.close()
+
+    return produtos
+
+
 # =========================================================
 # LOGINS
 # =========================================================
