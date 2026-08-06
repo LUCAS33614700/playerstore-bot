@@ -156,6 +156,19 @@ def criar_tabelas():
         )
     """)
 
+    # -----------------------------------------------------
+    # CARRINHO
+    # -----------------------------------------------------
+
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS carrinho_itens (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            usuario_id INTEGER NOT NULL,
+            produto_id INTEGER NOT NULL,
+            quantidade INTEGER DEFAULT 1
+        )
+    """)
+
     conn.commit()
     conn.close()
 
@@ -236,6 +249,179 @@ def remover_configuracao(
     conn.close()
 
     return removido
+
+
+# =========================================================
+# CARRINHO
+# =========================================================
+
+def adicionar_item_carrinho(
+    usuario_id,
+    produto_id,
+    quantidade=1,
+):
+
+    conn = conectar()
+    cursor = conn.cursor()
+
+    try:
+
+        cursor.execute("""
+            SELECT
+                id,
+                quantidade
+            FROM carrinho_itens
+            WHERE usuario_id = ?
+            AND produto_id = ?
+        """, (
+            usuario_id,
+            produto_id,
+        ))
+
+        existente = cursor.fetchone()
+
+        if existente:
+
+            item_id = existente[0]
+
+            nova_quantidade = (
+                int(existente[1])
+                + int(quantidade)
+            )
+
+            cursor.execute("""
+                UPDATE carrinho_itens
+                SET quantidade = ?
+                WHERE id = ?
+            """, (
+                nova_quantidade,
+                item_id,
+            ))
+
+        else:
+
+            cursor.execute("""
+                INSERT INTO carrinho_itens
+                (
+                    usuario_id,
+                    produto_id,
+                    quantidade
+                )
+                VALUES (?, ?, ?)
+            """, (
+                usuario_id,
+                produto_id,
+                int(quantidade),
+            ))
+
+        conn.commit()
+
+    except Exception:
+
+        conn.rollback()
+        raise
+
+    finally:
+
+        conn.close()
+
+
+def listar_itens_carrinho(
+    usuario_id,
+):
+
+    conn = conectar()
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        SELECT
+            ci.id,
+            ci.produto_id,
+            p.nome,
+            p.preco,
+            ci.quantidade
+        FROM carrinho_itens ci
+        INNER JOIN produtos p
+            ON p.id = ci.produto_id
+        WHERE ci.usuario_id = ?
+        ORDER BY ci.id
+    """, (
+        usuario_id,
+    ))
+
+    itens = cursor.fetchall()
+
+    conn.close()
+
+    return itens
+
+
+def remover_item_carrinho(
+    item_id,
+    usuario_id,
+):
+
+    conn = conectar()
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        DELETE FROM carrinho_itens
+        WHERE id = ?
+        AND usuario_id = ?
+    """, (
+        item_id,
+        usuario_id,
+    ))
+
+    removido = cursor.rowcount > 0
+
+    conn.commit()
+    conn.close()
+
+    return removido
+
+
+def limpar_carrinho(
+    usuario_id,
+):
+
+    conn = conectar()
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        DELETE FROM carrinho_itens
+        WHERE usuario_id = ?
+    """, (
+        usuario_id,
+    ))
+
+    conn.commit()
+    conn.close()
+
+
+def contar_itens_carrinho(
+    usuario_id,
+):
+
+    conn = conectar()
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        SELECT COALESCE(SUM(quantidade), 0)
+        FROM carrinho_itens
+        WHERE usuario_id = ?
+    """, (
+        usuario_id,
+    ))
+
+    resultado = cursor.fetchone()
+
+    conn.close()
+
+    if resultado:
+        return int(resultado[0])
+
+    return 0
 
 
 # =========================================================
