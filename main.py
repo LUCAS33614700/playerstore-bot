@@ -52,6 +52,7 @@ from database import (
     limpar_carrinho,
     buscar_produtos_por_nome,
     obter_imagem_produto,
+    contar_compras_usuario,
 )
 
 from menu import menu_principal
@@ -105,16 +106,41 @@ async def start(
 
     context.user_data.clear()
 
+    saldo = float(
+        consultar_saldo(usuario.id) or 0
+    )
+
+    total_compras = contar_compras_usuario(
+        usuario.id
+    )
+
+    username_texto = (
+        f"`@{usuario.username}`"
+        if usuario.username
+        else "Não informado"
+    )
+
     texto = (
-        f"👋 Olá, {usuario.first_name or 'cliente'}!\n\n"
-        "🛒 Bem-vindo à PLAYER STORE!\n\n"
-        "Escolha uma opção abaixo:"
+        "✨ *BEM-VINDO À PLAYER STORE!* ✨\n\n"
+        "🎬 O bot mais completo de contas premium "
+        "e telas exclusivas!\n\n"
+        "━━━━━━━━━━━━━━━━━━\n"
+        "👤 *SUAS INFORMAÇÕES*\n"
+        "━━━━━━━━━━━━━━━━━━\n\n"
+        f"👤 Nome: {usuario.first_name or 'cliente'}\n"
+        f"✏️ Username: {username_texto}\n"
+        f"🆔 ID: `{usuario.id}`\n"
+        f"💲 Saldo: R$ {saldo:.2f}\n"
+        f"🛍️ Compras: {total_compras}\n\n"
+        "━━━━━━━━━━━━━━━━━━\n\n"
+        "🚀 Aproveite as melhores ofertas!"
     )
 
     if update.message:
         await update.message.reply_text(
             texto,
             reply_markup=menu_principal(),
+            parse_mode="Markdown",
         )
 
 
