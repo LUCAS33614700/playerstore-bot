@@ -25,6 +25,7 @@ from database import (
     definir_configuracao,
     obter_configuracao,
     remover_configuracao,
+    definir_imagem_produto,
 )
 
 
@@ -380,6 +381,15 @@ async def admin_detalhes_produto(
                 "🗂️ DEFINIR CATEGORIA",
                 callback_data=(
                     f"admin_definir_categoria_{produto_id}"
+                ),
+            )
+        ],
+
+        [
+            InlineKeyboardButton(
+                "🖼️ IMAGEM (URL)",
+                callback_data=(
+                    f"admin_imagem_produto_{produto_id}"
                 ),
             )
         ],
@@ -832,6 +842,76 @@ async def processar_admin_texto(
             "vai aparecer:",
             reply_markup=InlineKeyboardMarkup(
                 botoes
+            ),
+            parse_mode="Markdown",
+        )
+
+        return True
+
+    # =====================================================
+    # DEFINIR IMAGEM DO PRODUTO (URL)
+    # =====================================================
+
+    if acao == "definir_imagem_produto":
+
+        produto_id = context.user_data.get(
+            "admin_produto_id"
+        )
+
+        if not produto_id:
+
+            limpar_estado(context)
+
+            await update.message.reply_text(
+                "❌ Produto não selecionado."
+            )
+
+            return True
+
+        url = texto.strip()
+
+        if not (
+            url.startswith("http://")
+            or url.startswith("https://")
+        ):
+
+            await update.message.reply_text(
+                "❌ O link precisa começar com "
+                "`http://` ou `https://`.\n\n"
+                "Envie novamente.",
+                parse_mode="Markdown",
+            )
+
+            return True
+
+        definir_imagem_produto(
+            produto_id,
+            url,
+        )
+
+        limpar_estado(context)
+
+        await update.message.reply_text(
+            "✅ *IMAGEM DO PRODUTO ATUALIZADA!*\n\n"
+            "Ela vai aparecer nos resultados de "
+            "busca inline a partir de agora.",
+            reply_markup=InlineKeyboardMarkup(
+                [
+                    [
+                        InlineKeyboardButton(
+                            "📦 GERENCIAR PRODUTO",
+                            callback_data=(
+                                f"admin_produto_{produto_id}"
+                            ),
+                        )
+                    ],
+                    [
+                        InlineKeyboardButton(
+                            "👑 PAINEL ADMIN",
+                            callback_data="admin_menu",
+                        )
+                    ],
+                ]
             ),
             parse_mode="Markdown",
         )
@@ -1428,6 +1508,66 @@ async def remover_imagem_catalogo(
                     InlineKeyboardButton(
                         "👑 PAINEL ADMIN",
                         callback_data="admin_menu",
+                    )
+                ]
+            ]
+        ),
+        parse_mode="Markdown",
+    )
+
+
+# =========================================================
+# IMAGEM DO PRODUTO (URL)
+# =========================================================
+
+async def iniciar_imagem_produto(
+    query,
+    context,
+    produto_id,
+):
+
+    if not await verificar_admin_query(query):
+
+        return
+
+    produto = buscar_produto(
+        produto_id
+    )
+
+    if not produto:
+
+        await query.answer(
+            "❌ Produto não encontrado.",
+            show_alert=True,
+        )
+
+        return
+
+    limpar_estado(context)
+
+    context.user_data[
+        "admin_acao"
+    ] = "definir_imagem_produto"
+
+    context.user_data[
+        "admin_produto_id"
+    ] = produto_id
+
+    await query.edit_message_text(
+        "🖼️ *IMAGEM DO PRODUTO (URL)*\n\n"
+        f"📦 Produto: {produto[1]}\n\n"
+        "Envie o link (URL) da imagem que vai "
+        "aparecer nos resultados de busca inline.\n\n"
+        "Precisa ser um link público que comece "
+        "com `http://` ou `https://`.",
+        reply_markup=InlineKeyboardMarkup(
+            [
+                [
+                    InlineKeyboardButton(
+                        "❌ CANCELAR",
+                        callback_data=(
+                            f"admin_produto_{produto_id}"
+                        ),
                     )
                 ]
             ]
@@ -2217,6 +2357,41 @@ async def botoes_admin(
             context,
             produto_id,
             categoria_id,
+        )
+
+        return
+
+    # =====================================================
+    # IMAGEM DO PRODUTO (URL)
+    # =====================================================
+
+    if acao.startswith(
+        "admin_imagem_produto_"
+    ):
+
+        try:
+
+            produto_id = int(
+                acao.replace(
+                    "admin_imagem_produto_",
+                    "",
+                    1,
+                )
+            )
+
+        except ValueError:
+
+            await query.answer(
+                "❌ Produto inválido.",
+                show_alert=True,
+            )
+
+            return
+
+        await iniciar_imagem_produto(
+            query,
+            context,
+            produto_id,
         )
 
         return
