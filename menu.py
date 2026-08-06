@@ -29,7 +29,9 @@ def menu_principal():
         [
             InlineKeyboardButton(
                 "🔎 PESQUISAR SERVIÇO",
-                callback_data="pesquisar_servico"
+                switch_inline_query_current_chat=(
+                    "buscar_loguin "
+                ),
             ),
             InlineKeyboardButton(
                 "📦 ESTOQUE DE LOGINS",
