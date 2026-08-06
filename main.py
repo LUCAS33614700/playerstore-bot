@@ -43,6 +43,10 @@ from database import (
     consultar_estoque_logins,
     buscar_categoria,
     obter_configuracao,
+    adicionar_item_carrinho,
+    listar_itens_carrinho,
+    remover_item_carrinho,
+    limpar_carrinho,
 )
 
 from menu import menu_principal
@@ -1333,6 +1337,407 @@ async def mostrar_status_pagamento(
 
 
 # =========================================================
+# CARRINHO
+# =========================================================
+
+async def mostrar_carrinho(
+    query,
+    usuario_id,
+):
+
+    itens = listar_itens_carrinho(
+        usuario_id
+    )
+
+    if not itens:
+
+        await query.edit_message_text(
+            "🛍️ *CARRINHO*\n\n"
+            "Seu carrinho está vazio.\n\n"
+            "Adicione produtos pelo catálogo.",
+            reply_markup=InlineKeyboardMarkup(
+                [
+                    [
+                        InlineKeyboardButton(
+                            "🛒 Ver catálogo",
+                            callback_data="catalogo",
+                        )
+                    ],
+                    [
+                        InlineKeyboardButton(
+                            "↩️ Voltar ao menu",
+                            callback_data="voltar_menu",
+                        )
+                    ],
+                ]
+            ),
+            parse_mode="Markdown",
+        )
+        return
+
+    texto = (
+        "🛍️ *CARRINHO*\n\n"
+        "━━━━━━━━━━━━━━━━━━\n"
+    )
+
+    total = 0.0
+    botoes = []
+
+    for item in itens:
+
+        item_id, produto_id, nome, preco, quantidade = item
+
+        preco = float(preco)
+        quantidade = int(quantidade)
+        subtotal = preco * quantidade
+        total += subtotal
+
+        texto += (
+            f"📦 *{nome}*\n"
+            f"   {quantidade}x R$ {preco:.2f} = "
+            f"R$ {subtotal:.2f}\n\n"
+        )
+
+        botoes.append(
+            [
+                InlineKeyboardButton(
+                    f"🗑️ Remover {nome[:25]}",
+                    callback_data=(
+                        f"remover_carrinho_{item_id}"
+                    ),
+                )
+            ]
+        )
+
+    saldo = float(
+        consultar_saldo(usuario_id) or 0
+    )
+
+    texto += (
+        "━━━━━━━━━━━━━━━━━━\n\n"
+        f"💰 *Total:* R$ {total:.2f}\n"
+        f"💳 *Seu saldo:* R$ {saldo:.2f}"
+    )
+
+    botoes.append(
+        [
+            InlineKeyboardButton(
+                "✅ FINALIZAR COMPRA",
+                callback_data="finalizar_carrinho",
+            )
+        ]
+    )
+
+    botoes.append(
+        [
+            InlineKeyboardButton(
+                "🗑️ ESVAZIAR CARRINHO",
+                callback_data="esvaziar_carrinho",
+            )
+        ]
+    )
+
+    botoes.append(
+        [
+            InlineKeyboardButton(
+                "🛒 Ver catálogo",
+                callback_data="catalogo",
+            )
+        ]
+    )
+
+    botoes.append(
+        [
+            InlineKeyboardButton(
+                "↩️ Voltar ao menu",
+                callback_data="voltar_menu",
+            )
+        ]
+    )
+
+    await query.edit_message_text(
+        texto,
+        reply_markup=InlineKeyboardMarkup(
+            botoes
+        ),
+        parse_mode="Markdown",
+    )
+
+
+async def finalizar_compra_carrinho(
+    query,
+    usuario_id,
+):
+
+    itens = listar_itens_carrinho(
+        usuario_id
+    )
+
+    if not itens:
+
+        await query.answer(
+            "🛍️ Seu carrinho está vazio.",
+            show_alert=True,
+        )
+        return
+
+    # ---------------------------------------------------
+    # Confere estoque real de cada item antes de cobrar.
+    # ---------------------------------------------------
+
+    itens_insuficientes = []
+    total = 0.0
+
+    for item in itens:
+
+        _, produto_id, nome, preco, quantidade = item
+
+        preco = float(preco)
+        quantidade = int(quantidade)
+
+        estoque_real = consultar_estoque_logins(
+            produto_id
+        )
+
+        if estoque_real < quantidade:
+
+            itens_insuficientes.append(
+                f"📦 {nome} "
+                f"(disponível: {estoque_real}, "
+                f"pedido: {quantidade})"
+            )
+
+        total += preco * quantidade
+
+    if itens_insuficientes:
+
+        texto_erro = (
+            "❌ *ESTOQUE INSUFICIENTE*\n\n"
+            "Os itens abaixo não têm estoque "
+            "suficiente:\n\n"
+            + "\n".join(itens_insuficientes)
+            + "\n\nAjuste as quantidades no carrinho "
+            "e tente novamente."
+        )
+
+        await query.edit_message_text(
+            texto_erro,
+            reply_markup=InlineKeyboardMarkup(
+                [
+                    [
+                        InlineKeyboardButton(
+                            "🛍️ Voltar ao carrinho",
+                            callback_data="carrinho",
+                        )
+                    ]
+                ]
+            ),
+            parse_mode="Markdown",
+        )
+        return
+
+    saldo = float(
+        consultar_saldo(usuario_id) or 0
+    )
+
+    if saldo < total:
+
+        await query.edit_message_text(
+            "❌ *SALDO INSUFICIENTE*\n\n"
+            f"💰 *Total do carrinho:* R$ {total:.2f}\n"
+            f"💳 *Seu saldo:* R$ {saldo:.2f}\n"
+            f"💵 *Faltam:* R$ {total - saldo:.2f}",
+            reply_markup=InlineKeyboardMarkup(
+                [
+                    [
+                        InlineKeyboardButton(
+                            "💵 ADICIONAR SALDO",
+                            callback_data="adicionar_saldo",
+                        )
+                    ],
+                    [
+                        InlineKeyboardButton(
+                            "🛍️ Voltar ao carrinho",
+                            callback_data="carrinho",
+                        )
+                    ],
+                ]
+            ),
+            parse_mode="Markdown",
+        )
+        return
+
+    sucesso = retirar_saldo(
+        usuario_id,
+        total,
+    )
+
+    if not sucesso:
+
+        await query.answer(
+            "❌ Não foi possível processar o pagamento.",
+            show_alert=True,
+        )
+        return
+
+    entregas = []
+    falhou = False
+
+    for item in itens:
+
+        _, produto_id, nome, preco, quantidade = item
+
+        preco = float(preco)
+        quantidade = int(quantidade)
+        valor_item = preco * quantidade
+
+        pedido_id = None
+
+        try:
+            conn = conectar()
+            cursor = conn.cursor()
+
+            cursor.execute(
+                """
+                INSERT INTO pedidos
+                (
+                    usuario_id,
+                    produto_id,
+                    quantidade,
+                    valor,
+                    status
+                )
+                VALUES (?, ?, ?, ?, 'pago')
+                """,
+                (
+                    usuario_id,
+                    produto_id,
+                    quantidade,
+                    valor_item,
+                ),
+            )
+
+            pedido_id = cursor.lastrowid
+            conn.commit()
+            conn.close()
+
+        except Exception as erro:
+            print(
+                "ERRO AO REGISTRAR PEDIDO DO CARRINHO:",
+                repr(erro),
+            )
+            falhou = True
+            break
+
+        contas_produto = []
+
+        for _ in range(quantidade):
+
+            login = retirar_login_disponivel(
+                produto_id,
+                usuario_id,
+                pedido_id,
+            )
+
+            if not login:
+                falhou = True
+                break
+
+            contas_produto.append(
+                login["dados"]
+            )
+
+        if falhou:
+            break
+
+        entregas.append(
+            (nome, contas_produto)
+        )
+
+    if falhou:
+
+        adicionar_saldo(
+            usuario_id,
+            total,
+        )
+
+        await query.edit_message_text(
+            "❌ *COMPRA NÃO CONCLUÍDA*\n\n"
+            "O estoque de algum item acabou "
+            "durante o processamento.\n\n"
+            "💰 O valor foi devolvido ao seu saldo.\n"
+            "Confira o carrinho e tente novamente.",
+            reply_markup=InlineKeyboardMarkup(
+                [
+                    [
+                        InlineKeyboardButton(
+                            "🛍️ Ver carrinho",
+                            callback_data="carrinho",
+                        )
+                    ]
+                ]
+            ),
+            parse_mode="Markdown",
+        )
+        return
+
+    limpar_carrinho(
+        usuario_id
+    )
+
+    novo_saldo = float(
+        consultar_saldo(usuario_id) or 0
+    )
+
+    texto = (
+        "✅ *COMPRA REALIZADA!*\n\n"
+        "━━━━━━━━━━━━━━━━━━\n"
+    )
+
+    for nome, contas in entregas:
+
+        texto += f"🛍️ *{nome}*\n"
+
+        for indice, dados in enumerate(
+            contas, start=1
+        ):
+            texto += (
+                f"🔐 *Conta {indice}*\n"
+                f"```\n{dados}\n```\n"
+            )
+
+        texto += "\n"
+
+    texto += (
+        "━━━━━━━━━━━━━━━━━━\n\n"
+        f"💵 *Total pago:* R$ {total:.2f}\n"
+        f"💳 *Saldo restante:* R$ {novo_saldo:.2f}\n\n"
+        "⚡ Entrega realizada automaticamente."
+    )
+
+    await query.edit_message_text(
+        texto,
+        reply_markup=InlineKeyboardMarkup(
+            [
+                [
+                    InlineKeyboardButton(
+                        "🛒 Ver catálogo",
+                        callback_data="catalogo",
+                    )
+                ],
+                [
+                    InlineKeyboardButton(
+                        "↩️ Voltar ao menu",
+                        callback_data="voltar_menu",
+                    )
+                ],
+            ]
+        ),
+        parse_mode="Markdown",
+    )
+
+
+# =========================================================
 # BOTÕES
 # =========================================================
 
@@ -1418,6 +1823,122 @@ async def botoes(
     if acao == "estoque_logins":
         await mostrar_estoque_logins(
             query,
+        )
+        return
+
+    # =====================================================
+    # CARRINHO
+    # =====================================================
+
+    if acao == "carrinho":
+        await mostrar_carrinho(
+            query,
+            usuario_id,
+        )
+        return
+
+    if acao.startswith("add_carrinho_"):
+
+        try:
+            produto_id = int(
+                acao.replace(
+                    "add_carrinho_",
+                    "",
+                    1,
+                )
+            )
+        except ValueError:
+            await query.answer(
+                "❌ Produto inválido.",
+                show_alert=True,
+            )
+            return
+
+        produto = buscar_produto(produto_id)
+
+        if not produto:
+            await query.answer(
+                "❌ Produto não encontrado.",
+                show_alert=True,
+            )
+            return
+
+        estoque_real = consultar_estoque_logins(
+            produto_id
+        )
+
+        if estoque_real <= 0:
+            await query.answer(
+                "📦 Produto sem contas disponíveis.",
+                show_alert=True,
+            )
+            return
+
+        adicionar_item_carrinho(
+            usuario_id,
+            produto_id,
+            1,
+        )
+
+        await query.answer(
+            "✅ Adicionado ao carrinho!",
+            show_alert=True,
+        )
+        return
+
+    if acao.startswith("remover_carrinho_"):
+
+        try:
+            item_id = int(
+                acao.replace(
+                    "remover_carrinho_",
+                    "",
+                    1,
+                )
+            )
+        except ValueError:
+            await query.answer(
+                "❌ Item inválido.",
+                show_alert=True,
+            )
+            return
+
+        remover_item_carrinho(
+            item_id,
+            usuario_id,
+        )
+
+        await query.answer(
+            "🗑️ Item removido."
+        )
+
+        await mostrar_carrinho(
+            query,
+            usuario_id,
+        )
+        return
+
+    if acao == "esvaziar_carrinho":
+
+        limpar_carrinho(
+            usuario_id
+        )
+
+        await query.answer(
+            "🗑️ Carrinho esvaziado."
+        )
+
+        await mostrar_carrinho(
+            query,
+            usuario_id,
+        )
+        return
+
+    if acao == "finalizar_carrinho":
+
+        await finalizar_compra_carrinho(
+            query,
+            usuario_id,
         )
         return
 
@@ -1609,6 +2130,12 @@ async def botoes(
                 InlineKeyboardButton(
                     "🛍️ COMPRAR EM QUANTIDADE",
                     callback_data=f"quantidade_{produto_id}",
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    "➕ ADICIONAR AO CARRINHO",
+                    callback_data=f"add_carrinho_{produto_id}",
                 )
             ],
             [
