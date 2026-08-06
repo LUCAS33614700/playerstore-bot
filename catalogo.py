@@ -187,6 +187,8 @@ def menu_categorias():
 
     else:
 
+        linha_atual = []
+
         for categoria in categorias:
 
             categoria_id = categoria[0]
@@ -201,16 +203,25 @@ def menu_categorias():
                 produtos_categoria
             )
 
-            botoes.append(
-                [
-                    InlineKeyboardButton(
-                        f"{emoji} {nome} ({quantidade})",
-                        callback_data=(
-                            f"categoria_{categoria_id}"
-                        ),
-                    )
-                ]
+            linha_atual.append(
+                InlineKeyboardButton(
+                    f"{emoji} {nome} ({quantidade})",
+                    callback_data=(
+                        f"categoria_{categoria_id}"
+                    ),
+                )
             )
+
+            # Duas categorias por linha, igual ao layout
+            # de referência (Telas | Contas / Outros).
+            if len(linha_atual) == 2:
+
+                botoes.append(linha_atual)
+                linha_atual = []
+
+        if linha_atual:
+
+            botoes.append(linha_atual)
 
     botoes.append(
         [
@@ -224,6 +235,31 @@ def menu_categorias():
     return InlineKeyboardMarkup(
         botoes
     )
+
+
+# =========================================================
+# TEXTO DE APRESENTAÇÃO DO CATÁLOGO
+# =========================================================
+
+def texto_selecionar_categoria():
+
+    categorias = listar_categorias()
+
+    linhas_categorias = "\n".join(
+        f"{categoria[2]} {categoria[1]}"
+        for categoria in categorias
+    )
+
+    texto = (
+        "✨ *Selecione a categoria de serviços:* ✨\n"
+        "👉 Escolha uma opção abaixo para visualizar "
+        "os logins disponíveis!\n\n"
+        f"{linhas_categorias}\n\n"
+        "🎁 _Aproveite também nossos Gift Cards "
+        "exclusivos!_"
+    )
+
+    return texto
 
 
 # =========================================================
