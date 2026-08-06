@@ -1,3 +1,5 @@
+from urllib.parse import urlparse
+
 from telegram import (
     Update,
     InlineKeyboardButton,
@@ -27,6 +29,42 @@ from database import (
     remover_configuracao,
     definir_imagem_produto,
 )
+
+
+# =========================================================
+# VALIDAR URL DE IMAGEM
+# =========================================================
+
+EXTENSOES_IMAGEM_VALIDAS = (
+    ".jpg",
+    ".jpeg",
+    ".png",
+    ".webp",
+    ".gif",
+)
+
+
+def url_parece_imagem(url):
+    """
+    Verifica se a URL aponta direto para um arquivo de
+    imagem (termina em .jpg/.jpeg/.png/.webp/.gif),
+    ignorando parâmetros de query (?...) e âncoras (#...).
+    Isso evita aceitar links de página (ex: share.google,
+    encurtadores, posts do Instagram) que não são a
+    imagem em si.
+    """
+
+    if not (
+        url.startswith("http://")
+        or url.startswith("https://")
+    ):
+        return False
+
+    caminho = urlparse(url).path.lower()
+
+    return caminho.endswith(
+        EXTENSOES_IMAGEM_VALIDAS
+    )
 
 
 # =========================================================
@@ -870,15 +908,22 @@ async def processar_admin_texto(
 
         url = texto.strip()
 
-        if not (
-            url.startswith("http://")
-            or url.startswith("https://")
-        ):
+        if not url_parece_imagem(url):
 
             await update.message.reply_text(
-                "❌ O link precisa começar com "
-                "`http://` ou `https://`.\n\n"
-                "Envie novamente.",
+                "❌ Esse link não parece ser uma "
+                "imagem direta.\n\n"
+                "Precisa ser um link `http://` ou "
+                "`https://` que termine em `.jpg`, "
+                "`.jpeg`, `.png`, `.webp` ou `.gif` "
+                "— não um link de página (como "
+                "share.google, encurtadores, posts "
+                "de rede social, etc).\n\n"
+                "Dica: se não tiver onde hospedar, "
+                "suba a imagem em imgur.com (sem "
+                "precisar de conta) e use o "
+                "\"Copy image link\" gerado por lá.\n\n"
+                "Envie o link novamente.",
                 parse_mode="Markdown",
             )
 
@@ -1558,8 +1603,10 @@ async def iniciar_imagem_produto(
         f"📦 Produto: {produto[1]}\n\n"
         "Envie o link (URL) da imagem que vai "
         "aparecer nos resultados de busca inline.\n\n"
-        "Precisa ser um link público que comece "
-        "com `http://` ou `https://`.",
+        "Precisa ser um link direto pra imagem "
+        "(terminando em `.jpg`, `.png`, `.webp` "
+        "ou `.gif`) — não um link de página ou "
+        "de compartilhamento.",
         reply_markup=InlineKeyboardMarkup(
             [
                 [
