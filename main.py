@@ -8,6 +8,8 @@ from telegram import (
     InlineKeyboardButton,
     InlineKeyboardMarkup,
     CopyTextButton,
+    InlineQueryResultArticle,
+    InputTextMessageContent,
 )
 
 from telegram.ext import (
@@ -16,6 +18,7 @@ from telegram.ext import (
     CallbackQueryHandler,
     ContextTypes,
     MessageHandler,
+    InlineQueryHandler,
     filters,
 )
 
@@ -48,6 +51,7 @@ from database import (
     remover_item_carrinho,
     limpar_carrinho,
     buscar_produtos_por_nome,
+    obter_imagem_produto,
 )
 
 from menu import menu_principal
@@ -57,6 +61,7 @@ from catalogo import (
     menu_produtos_categoria,
     texto_selecionar_categoria,
     buscar_produto,
+    listar_produtos,
 )
 from pushinpay import criar_pix, consultar_pix
 
@@ -1345,6 +1350,92 @@ async def mostrar_status_pagamento(
 
 
 # =========================================================
+# BUSCA INLINE (@seubot termo, em qualquer chat)
+# =========================================================
+
+async def pesquisa_inline(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+):
+
+    inline_query = update.inline_query
+
+    if not inline_query:
+        return
+
+    termo = (inline_query.query or "").strip()
+
+    if termo:
+        produtos = buscar_produtos_por_nome(
+            termo
+        )
+    else:
+        produtos = listar_produtos()
+
+    resultados = []
+
+    for produto in produtos[:50]:
+
+        produto_id = produto[0]
+        nome = produto[1]
+        preco = float(produto[3])
+        estoque = int(produto[4])
+
+        imagem_url = obter_imagem_produto(
+            produto_id
+        )
+
+        kwargs = {}
+
+        if imagem_url:
+            kwargs["thumbnail_url"] = imagem_url
+
+        resultados.append(
+            InlineQueryResultArticle(
+                id=str(produto_id),
+                title=nome,
+                description=(
+                    f"Valor: R${preco:.2f} | "
+                    f"Estoque: {estoque}"
+                ),
+                input_message_content=(
+                    InputTextMessageContent(
+                        f"🛍️ *{nome}*\n\n"
+                        f"💰 *Valor:* R$ {preco:.2f}\n"
+                        f"📦 *Estoque:* {estoque}",
+                        parse_mode="Markdown",
+                    )
+                ),
+                reply_markup=InlineKeyboardMarkup(
+                    [
+                        [
+                            InlineKeyboardButton(
+                                "🛒 Ver produto",
+                                callback_data=(
+                                    f"produto_{produto_id}"
+                                ),
+                            )
+                        ]
+                    ]
+                ),
+                **kwargs,
+            )
+        )
+
+    try:
+        await inline_query.answer(
+            resultados,
+            cache_time=1,
+            is_personal=True,
+        )
+    except Exception as erro:
+        print(
+            "ERRO NA BUSCA INLINE:",
+            repr(erro),
+        )
+
+
+# =========================================================
 # PESQUISAR SERVIÇO
 # =========================================================
 
@@ -2627,6 +2718,12 @@ def main():
         CommandHandler(
             "admin",
             comando_admin,
+        )
+    )
+
+    application.add_handler(
+        InlineQueryHandler(
+            pesquisa_inline
         )
     )
 
