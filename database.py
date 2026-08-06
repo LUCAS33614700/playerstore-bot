@@ -169,6 +169,21 @@ def criar_tabelas():
         )
     """)
 
+    # -----------------------------------------------------
+    # IMAGEM POR PRODUTO (para resultados de busca inline)
+    # -----------------------------------------------------
+    # Migração segura: SQLite não tem "ADD COLUMN IF NOT
+    # EXISTS", então tentamos adicionar e ignoramos o erro
+    # se a coluna já existir.
+
+    try:
+        cursor.execute("""
+            ALTER TABLE produtos
+            ADD COLUMN imagem_url TEXT
+        """)
+    except sqlite3.OperationalError:
+        pass
+
     conn.commit()
     conn.close()
 
@@ -976,6 +991,56 @@ def buscar_produtos_por_nome(
     conn.close()
 
     return produtos
+
+
+def obter_imagem_produto(
+    produto_id,
+):
+
+    conn = conectar()
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        SELECT imagem_url
+        FROM produtos
+        WHERE id = ?
+    """, (
+        produto_id,
+    ))
+
+    resultado = cursor.fetchone()
+
+    conn.close()
+
+    if resultado:
+        return resultado[0]
+
+    return None
+
+
+def definir_imagem_produto(
+    produto_id,
+    url,
+):
+
+    conn = conectar()
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        UPDATE produtos
+        SET imagem_url = ?
+        WHERE id = ?
+    """, (
+        url,
+        produto_id,
+    ))
+
+    alterado = cursor.rowcount > 0
+
+    conn.commit()
+    conn.close()
+
+    return alterado
 
 
 # =========================================================
