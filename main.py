@@ -47,6 +47,7 @@ from database import (
     listar_itens_carrinho,
     remover_item_carrinho,
     limpar_carrinho,
+    buscar_produtos_por_nome,
 )
 
 from menu import menu_principal
@@ -926,6 +927,13 @@ async def processar_mensagem_texto(
         )
         return
 
+    if context.user_data.get("aguardando_pesquisa"):
+        await processar_pesquisa_servico(
+            update,
+            context,
+        )
+        return
+
 
 # =========================================================
 # VERIFICAR PAGAMENTO MANUAL
@@ -1333,6 +1341,144 @@ async def mostrar_status_pagamento(
         "⏰ Ainda aguardando o pagamento.\n\n"
         "O bot verifica automaticamente.",
         show_alert=True,
+    )
+
+
+# =========================================================
+# PESQUISAR SERVIÇO
+# =========================================================
+
+async def pedir_pesquisa_servico(
+    query,
+    context,
+):
+
+    context.user_data["aguardando_pesquisa"] = True
+    context.user_data["aguardando_quantidade"] = False
+    context.user_data["aguardando_valor"] = False
+    context.user_data["produto_quantidade_id"] = None
+
+    await query.edit_message_text(
+        "🔎 *PESQUISAR SERVIÇO*\n\n"
+        "Digite o nome do produto que você "
+        "está procurando.\n\n"
+        "Exemplo:\n"
+        "`netflix`\n"
+        "`disney`",
+        reply_markup=InlineKeyboardMarkup(
+            [
+                [
+                    InlineKeyboardButton(
+                        "⬅️ Voltar",
+                        callback_data="voltar_menu",
+                    )
+                ]
+            ]
+        ),
+        parse_mode="Markdown",
+    )
+
+
+async def processar_pesquisa_servico(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+):
+
+    if not update.message:
+        return
+
+    termo = (update.message.text or "").strip()
+
+    if not termo:
+
+        await update.message.reply_text(
+            "❌ Digite um termo para pesquisar."
+        )
+        return
+
+    context.user_data["aguardando_pesquisa"] = False
+
+    produtos = buscar_produtos_por_nome(
+        termo
+    )
+
+    if not produtos:
+
+        await update.message.reply_text(
+            "🔎 *PESQUISAR SERVIÇO*\n\n"
+            f"❌ Nenhum resultado para: "
+            f"\"{termo}\"",
+            reply_markup=InlineKeyboardMarkup(
+                [
+                    [
+                        InlineKeyboardButton(
+                            "🔎 Pesquisar de novo",
+                            callback_data="pesquisar_servico",
+                        )
+                    ],
+                    [
+                        InlineKeyboardButton(
+                            "🛒 Ver catálogo",
+                            callback_data="catalogo",
+                        )
+                    ],
+                    [
+                        InlineKeyboardButton(
+                            "↩️ Voltar ao menu",
+                            callback_data="voltar_menu",
+                        )
+                    ],
+                ]
+            ),
+            parse_mode="Markdown",
+        )
+        return
+
+    botoes = []
+
+    for produto in produtos:
+
+        produto_id = produto[0]
+        nome = produto[1]
+        preco = float(produto[3])
+
+        botoes.append(
+            [
+                InlineKeyboardButton(
+                    f"{nome} R${preco:.2f}",
+                    callback_data=(
+                        f"produto_{produto_id}"
+                    ),
+                )
+            ]
+        )
+
+    botoes.append(
+        [
+            InlineKeyboardButton(
+                "🔎 Pesquisar de novo",
+                callback_data="pesquisar_servico",
+            )
+        ]
+    )
+
+    botoes.append(
+        [
+            InlineKeyboardButton(
+                "↩️ Voltar ao menu",
+                callback_data="voltar_menu",
+            )
+        ]
+    )
+
+    await update.message.reply_text(
+        "🔎 *RESULTADO DA PESQUISA*\n\n"
+        f"Encontrado(s) {len(produtos)} "
+        f"resultado(s) para \"{termo}\":",
+        reply_markup=InlineKeyboardMarkup(
+            botoes
+        ),
+        parse_mode="Markdown",
     )
 
 
@@ -1823,6 +1969,17 @@ async def botoes(
     if acao == "estoque_logins":
         await mostrar_estoque_logins(
             query,
+        )
+        return
+
+    # =====================================================
+    # PESQUISAR SERVIÇO
+    # =====================================================
+
+    if acao == "pesquisar_servico":
+        await pedir_pesquisa_servico(
+            query,
+            context,
         )
         return
 
