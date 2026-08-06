@@ -1365,6 +1365,9 @@ async def pesquisa_inline(
 
     termo = (inline_query.query or "").strip()
 
+    if termo.lower().startswith("buscar_loguin"):
+        termo = termo[len("buscar_loguin"):].strip()
+
     if termo:
         produtos = buscar_produtos_por_nome(
             termo
