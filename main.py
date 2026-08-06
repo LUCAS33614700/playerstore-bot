@@ -50,6 +50,7 @@ from catalogo import (
     menu_catalogo,
     menu_categorias,
     menu_produtos_categoria,
+    texto_selecionar_categoria,
     buscar_produto,
 )
 from pushinpay import criar_pix, consultar_pix
@@ -1429,8 +1430,7 @@ async def botoes(
         context.user_data["aguardando_valor"] = False
 
         texto_catalogo = (
-            "🛒 *LOGINS | CONTAS PREMIUM*\n\n"
-            "Selecione a categoria:"
+            texto_selecionar_categoria()
         )
 
         imagem_id = obter_configuracao(
