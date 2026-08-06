@@ -184,6 +184,26 @@ def criar_tabelas():
     except sqlite3.OperationalError:
         pass
 
+    # -----------------------------------------------------
+    # XP / NÍVEL (preparado para uso futuro)
+    # -----------------------------------------------------
+
+    try:
+        cursor.execute("""
+            ALTER TABLE usuarios
+            ADD COLUMN xp INTEGER DEFAULT 0
+        """)
+    except sqlite3.OperationalError:
+        pass
+
+    try:
+        cursor.execute("""
+            ALTER TABLE usuarios
+            ADD COLUMN nivel INTEGER DEFAULT 1
+        """)
+    except sqlite3.OperationalError:
+        pass
+
     conn.commit()
     conn.close()
 
@@ -514,6 +534,32 @@ def consultar_saldo(user_id):
         return float(usuario[3])
 
     return 0.0
+
+
+def contar_compras_usuario(
+    user_id,
+):
+
+    conn = conectar()
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        SELECT COUNT(*)
+        FROM pedidos
+        WHERE usuario_id = ?
+        AND status = 'pago'
+    """, (
+        user_id,
+    ))
+
+    resultado = cursor.fetchone()
+
+    conn.close()
+
+    if resultado:
+        return int(resultado[0])
+
+    return 0
 
 
 # =========================================================
