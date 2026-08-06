@@ -21,6 +21,7 @@ from database import (
     excluir_produto,
     listar_categorias,
     definir_categoria_produto,
+    consultar_categoria_produto,
     definir_configuracao,
     obter_configuracao,
     remover_configuracao,
@@ -322,6 +323,17 @@ async def admin_detalhes_produto(
         produto_id
     )
 
+    categoria_atual = consultar_categoria_produto(
+        produto_id
+    )
+
+    if categoria_atual:
+        texto_categoria = (
+            f"{categoria_atual[2]} {categoria_atual[1]}"
+        )
+    else:
+        texto_categoria = "⚠️ Sem categoria"
+
     texto = (
         "📦 *GERENCIAR PRODUTO*\n\n"
         "━━━━━━━━━━━━━━━━━━\n"
@@ -329,6 +341,7 @@ async def admin_detalhes_produto(
         f"💰 *Preço:* R$ {float(preco):.2f}\n"
         f"📦 *Estoque:* {estoque}\n"
         f"🔐 *Contas disponíveis:* {estoque_real}\n"
+        f"🗂️ *Categoria:* {texto_categoria}\n"
         "━━━━━━━━━━━━━━━━━━\n\n"
         f"📝 {descricao or 'Sem descrição'}"
     )
@@ -358,6 +371,15 @@ async def admin_detalhes_produto(
                 "💰 ALTERAR PREÇO",
                 callback_data=(
                     f"admin_preco_{produto_id}"
+                ),
+            )
+        ],
+
+        [
+            InlineKeyboardButton(
+                "🗂️ DEFINIR CATEGORIA",
+                callback_data=(
+                    f"admin_definir_categoria_{produto_id}"
                 ),
             )
         ],
@@ -1553,6 +1575,127 @@ async def finalizar_novo_produto_com_categoria(
 
 
 # =========================================================
+# DEFINIR CATEGORIA DE PRODUTO EXISTENTE
+# =========================================================
+
+async def iniciar_definir_categoria_produto(
+    query,
+    context,
+    produto_id,
+):
+
+    if not await verificar_admin_query(query):
+
+        return
+
+    produto = buscar_produto(
+        produto_id
+    )
+
+    if not produto:
+
+        await query.answer(
+            "❌ Produto não encontrado.",
+            show_alert=True,
+        )
+
+        return
+
+    categorias = listar_categorias()
+
+    if not categorias:
+
+        await query.answer(
+            "❌ Nenhuma categoria cadastrada.",
+            show_alert=True,
+        )
+
+        return
+
+    botoes = []
+
+    for categoria in categorias:
+
+        categoria_id = categoria[0]
+        nome_categoria = categoria[1]
+        emoji = categoria[2]
+
+        botoes.append(
+            [
+                InlineKeyboardButton(
+                    f"{emoji} {nome_categoria}",
+                    callback_data=(
+                        f"admin_set_categoria_"
+                        f"{produto_id}_{categoria_id}"
+                    ),
+                )
+            ]
+        )
+
+    botoes.append(
+        [
+            InlineKeyboardButton(
+                "⬅️ Voltar",
+                callback_data=(
+                    f"admin_produto_{produto_id}"
+                ),
+            )
+        ]
+    )
+
+    await query.edit_message_text(
+        "🗂️ *DEFINIR CATEGORIA*\n\n"
+        f"📦 Produto: {produto[1]}\n\n"
+        "Escolha a categoria:",
+        reply_markup=InlineKeyboardMarkup(
+            botoes
+        ),
+        parse_mode="Markdown",
+    )
+
+
+async def executar_definir_categoria_produto(
+    query,
+    context,
+    produto_id,
+    categoria_id,
+):
+
+    if not await verificar_admin_query(query):
+
+        return
+
+    produto = buscar_produto(
+        produto_id
+    )
+
+    if not produto:
+
+        await query.answer(
+            "❌ Produto não encontrado.",
+            show_alert=True,
+        )
+
+        return
+
+    definir_categoria_produto(
+        produto_id,
+        categoria_id,
+    )
+
+    await query.answer(
+        "✅ Categoria definida.",
+        show_alert=True,
+    )
+
+    await admin_detalhes_produto(
+        query,
+        context,
+        produto_id,
+    )
+
+
+# =========================================================
 # CONFIRMAR EXCLUSÃO DE PRODUTO
 # =========================================================
 
@@ -2006,6 +2149,74 @@ async def botoes_admin(
             query,
             context,
             produto_id,
+        )
+
+        return
+
+    # =====================================================
+    # DEFINIR CATEGORIA DE PRODUTO EXISTENTE
+    # =====================================================
+
+    if acao.startswith(
+        "admin_definir_categoria_"
+    ):
+
+        try:
+
+            produto_id = int(
+                acao.replace(
+                    "admin_definir_categoria_",
+                    "",
+                    1,
+                )
+            )
+
+        except ValueError:
+
+            await query.answer(
+                "❌ Produto inválido.",
+                show_alert=True,
+            )
+
+            return
+
+        await iniciar_definir_categoria_produto(
+            query,
+            context,
+            produto_id,
+        )
+
+        return
+
+    if acao.startswith(
+        "admin_set_categoria_"
+    ):
+
+        partes = acao.replace(
+            "admin_set_categoria_",
+            "",
+            1,
+        ).split("_")
+
+        try:
+
+            produto_id = int(partes[0])
+            categoria_id = int(partes[1])
+
+        except (ValueError, IndexError):
+
+            await query.answer(
+                "❌ Dados inválidos.",
+                show_alert=True,
+            )
+
+            return
+
+        await executar_definir_categoria_produto(
+            query,
+            context,
+            produto_id,
+            categoria_id,
         )
 
         return
