@@ -2683,6 +2683,72 @@ async def botoes(
         return
 
     # =====================================================
+    # TERMOS DE USO
+    # =====================================================
+
+    if acao == "termos":
+        await editar_ou_substituir(
+            query,
+            context,
+            "📜 *TERMOS DE USO*\n"
+            "━━━━━━━━━━━━━━━━━━\n\n"
+            "⚠️ Ao confirmar uma compra, você concorda "
+            "com todas as regras abaixo.\n\n"
+            "━━━━━━━━━━━━━━━━━━\n"
+            "🕐 *HORÁRIO DE ATENDIMENTO*\n"
+            "━━━━━━━━━━━━━━━━━━\n\n"
+            "Nosso suporte funciona, em geral, das "
+            "11h às 21h.\n"
+            "Aos finais de semana e feriados o "
+            "atendimento pode estar indisponível.\n\n"
+            "━━━━━━━━━━━━━━━━━━\n"
+            "🆘 *COMO SOLICITAR SUPORTE*\n"
+            "━━━━━━━━━━━━━━━━━━\n\n"
+            "1️⃣ Clique em SUPORTE no menu do bot\n"
+            "2️⃣ Descreva o seu problema com clareza\n"
+            "3️⃣ Aguarde um administrador responder\n\n"
+            "📌 É obrigatório enviar:\n"
+            "• 📸 Print do erro\n"
+            "• 🔑 Login exatamente como recebido\n"
+            "• 📅 Data da compra\n\n"
+            "Sem esses dados não é possível dar "
+            "suporte.\n\n"
+            "━━━━━━━━━━━━━━━━━━\n"
+            "❗ *REGRAS IMPORTANTES*\n"
+            "━━━━━━━━━━━━━━━━━━\n\n"
+            "• ❌ Não altere o e-mail das contas — "
+            "perde o suporte\n"
+            "• 💰 Reembolso só em saldo do bot, "
+            "nunca em Pix\n"
+            "• 🤝 Respeito é essencial — ofensas "
+            "levam a banimento e perda do saldo\n\n"
+            "━━━━━━━━━━━━━━━━━━\n"
+            "⏳ *PRAZOS*\n"
+            "━━━━━━━━━━━━━━━━━━\n\n"
+            "• Retorno em até 24 a 48 horas\n"
+            "• Se passar disso, você recebe em "
+            "saldo o valor proporcional aos dias "
+            "pendentes\n"
+            "• Problemas com login online: "
+            "resolvidos na hora\n\n"
+            "━━━━━━━━━━━━━━━━━━\n\n"
+            "✅ Ao prosseguir, você confirma que "
+            "leu e aceita.",
+            reply_markup=InlineKeyboardMarkup(
+                [
+                    [
+                        InlineKeyboardButton(
+                            "↩️ Voltar ao menu",
+                            callback_data="voltar_menu",
+                        )
+                    ]
+                ]
+            ),
+            parse_mode="Markdown",
+        )
+        return
+
+    # =====================================================
     # AJUDA
     # =====================================================
 
@@ -2701,6 +2767,76 @@ async def botoes(
             "Depois de pagar o PIX, não é necessário enviar comprovante "
             "nem ficar consultando manualmente.\n\n"
             "🤖 O sistema verifica automaticamente a confirmação.",
+            reply_markup=InlineKeyboardMarkup(
+                [
+                    [
+                        InlineKeyboardButton(
+                            "⬅️ Voltar",
+                            callback_data="voltar_menu",
+                        )
+                    ]
+                ]
+            ),
+            parse_mode="Markdown",
+        )
+        return
+
+    # =====================================================
+    # TERMOS DE USO
+    # =====================================================
+
+    if acao == "termos":
+
+        texto_termos = (
+            "📜 𝗧𝗘𝗥𝗠𝗢𝗦 𝗗𝗘 𝗨𝗦𝗢\n"
+            "━━━━━━━━━━━━━━━━━━\n\n"
+            "⚠️ Ao confirmar uma compra, você concorda "
+            "com todas as regras abaixo.\n\n"
+            "━━━━━━━━━━━━━━━━━━\n"
+            "🕐 HORÁRIO DE ATENDIMENTO\n"
+            "━━━━━━━━━━━━━━━━━━\n\n"
+            "Nosso suporte funciona, em geral, das 11h "
+            "às 21h.\n"
+            "Aos finais de semana e feriados o "
+            "atendimento pode estar indisponível.\n\n"
+            "━━━━━━━━━━━━━━━━━━\n"
+            "🆘 COMO SOLICITAR SUPORTE\n"
+            "━━━━━━━━━━━━━━━━━━\n\n"
+            "1️⃣ Clique em SUPORTE no menu do bot\n"
+            "2️⃣ Descreva o seu problema com clareza\n"
+            "3️⃣ Aguarde um administrador responder\n\n"
+            "📌 É obrigatório enviar:\n"
+            "• 📸 Print do erro\n"
+            "• 🔑 Login exatamente como recebido\n"
+            "• 📅 Data da compra\n\n"
+            "Sem esses dados não é possível dar "
+            "suporte.\n\n"
+            "━━━━━━━━━━━━━━━━━━\n"
+            "❗ REGRAS IMPORTANTES\n"
+            "━━━━━━━━━━━━━━━━━━\n\n"
+            "• ❌ Não altere o e-mail das contas — "
+            "perde o suporte\n"
+            "• 💰 Reembolso só em saldo do bot, nunca "
+            "em Pix\n"
+            "• 🤝 Respeito é essencial — ofensas levam "
+            "a banimento e perda do saldo\n\n"
+            "━━━━━━━━━━━━━━━━━━\n"
+            "⏳ PRAZOS\n"
+            "━━━━━━━━━━━━━━━━━━\n\n"
+            "• Retorno em até 24 a 48 horas\n"
+            "• Se passar disso, você recebe em saldo o "
+            "valor proporcional aos dias pendentes\n"
+            "• Problemas com login online: resolvidos "
+            "na hora\n\n"
+            "━━━━━━━━━━━━━━━━━━\n\n"
+            "✅ Ao prosseguir, você confirma que leu e "
+            "aceita."
+        )
+
+        await editar_ou_substituir(
+            query,
+            context,
+            texto_termos,
             reply_markup=InlineKeyboardMarkup(
                 [
                     [
