@@ -1978,6 +1978,56 @@ async def finalizar_compra_carrinho(
 
 
 # =========================================================
+# EDITAR TEXTO (COM SUPORTE A MENSAGENS QUE SÃO FOTO/GIF)
+# =========================================================
+#
+# query.edit_message_text falha quando a mensagem original
+# é uma foto ou GIF (como o catálogo com imagem configurada
+# pelo admin). Nesses casos, apagamos a mensagem e mandamos
+# uma nova mensagem de texto no lugar.
+
+async def editar_ou_substituir(
+    query,
+    context,
+    texto,
+    reply_markup=None,
+    parse_mode="Markdown",
+):
+
+    mensagem = query.message
+
+    e_midia = bool(
+        mensagem
+        and (
+            mensagem.photo
+            or mensagem.animation
+        )
+    )
+
+    if e_midia:
+
+        try:
+            await mensagem.delete()
+        except Exception:
+            pass
+
+        await context.bot.send_message(
+            chat_id=mensagem.chat_id,
+            text=texto,
+            reply_markup=reply_markup,
+            parse_mode=parse_mode,
+        )
+
+    else:
+
+        await query.edit_message_text(
+            texto,
+            reply_markup=reply_markup,
+            parse_mode=parse_mode,
+        )
+
+
+# =========================================================
 # BOTÕES
 # =========================================================
 
@@ -2287,7 +2337,9 @@ async def botoes(
         emoji = categoria[2]
         nome_categoria = categoria[1]
 
-        await query.edit_message_text(
+        await editar_ou_substituir(
+            query,
+            context,
             f"{emoji} *{nome_categoria.upper()}*\n\n"
             "Escolha um produto:",
             reply_markup=menu_produtos_categoria(
@@ -2545,7 +2597,9 @@ async def botoes(
     if acao == "voltar_menu":
         context.user_data.clear()
 
-        await query.edit_message_text(
+        await editar_ou_substituir(
+            query,
+            context,
             "🛒 *PLAYER STORE*\n\n"
             "Escolha uma opção abaixo:",
             reply_markup=menu_principal(),
