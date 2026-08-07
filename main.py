@@ -91,6 +91,33 @@ VERIFICADOR_TASK = "verificador_pagamentos_task"
 
 
 # =========================================================
+# MODO MANUTENÇÃO
+# =========================================================
+
+TEXTO_MANUTENCAO = (
+    "🛠️ *BOT EM MANUTENÇÃO*\n\n"
+    "Estamos atualizando nosso estoque/sistema "
+    "no momento.\n\n"
+    "Voltamos em breve! Tente novamente daqui "
+    "a pouco. 🙏"
+)
+
+
+def modo_manutencao_ativo():
+    return (
+        obter_configuracao("modo_manutencao")
+        == "1"
+    )
+
+
+def eh_admin_principal(user_id):
+    try:
+        return int(user_id) == int(ADMIN_ID)
+    except (ValueError, TypeError):
+        return False
+
+
+# =========================================================
 # ENVIAR MENU PRINCIPAL (COM BANNER, SE CADASTRADO)
 # =========================================================
 
@@ -152,6 +179,16 @@ async def start(
     usuario = update.effective_user
 
     if not usuario:
+        return
+
+    if modo_manutencao_ativo() and not eh_admin_principal(
+        usuario.id
+    ):
+        if update.message:
+            await update.message.reply_text(
+                TEXTO_MANUTENCAO,
+                parse_mode="Markdown",
+            )
         return
 
     criar_usuario(
@@ -982,6 +1019,20 @@ async def processar_midia_generico(
     update: Update,
     context: ContextTypes.DEFAULT_TYPE,
 ):
+    usuario = update.effective_user
+
+    if (
+        usuario
+        and modo_manutencao_ativo()
+        and not eh_admin_principal(usuario.id)
+    ):
+        if update.message:
+            await update.message.reply_text(
+                TEXTO_MANUTENCAO,
+                parse_mode="Markdown",
+            )
+        return
+
     try:
         tratado_admin = await processar_admin_midia(
             update,
@@ -1011,6 +1062,20 @@ async def processar_mensagem_texto(
     update: Update,
     context: ContextTypes.DEFAULT_TYPE,
 ):
+    usuario = update.effective_user
+
+    if (
+        usuario
+        and modo_manutencao_ativo()
+        and not eh_admin_principal(usuario.id)
+    ):
+        if update.message:
+            await update.message.reply_text(
+                TEXTO_MANUTENCAO,
+                parse_mode="Markdown",
+            )
+        return
+
     try:
         if await processar_admin_texto(
             update,
@@ -1478,6 +1543,33 @@ async def pesquisa_inline(
     inline_query = update.inline_query
 
     if not inline_query:
+        return
+
+    if modo_manutencao_ativo() and not eh_admin_principal(
+        inline_query.from_user.id
+    ):
+        try:
+            await inline_query.answer(
+                [
+                    InlineQueryResultArticle(
+                        id="manutencao",
+                        title="🛠️ Bot em manutenção",
+                        description=(
+                            "Tente novamente em breve."
+                        ),
+                        input_message_content=(
+                            InputTextMessageContent(
+                                TEXTO_MANUTENCAO,
+                                parse_mode="Markdown",
+                            )
+                        ),
+                    )
+                ],
+                cache_time=1,
+                is_personal=True,
+            )
+        except Exception:
+            pass
         return
 
     termo = (inline_query.query or "").strip()
@@ -2642,6 +2734,18 @@ async def botoes(
 
     usuario_id = query.from_user.id
     acao = query.data or ""
+
+    if (
+        modo_manutencao_ativo()
+        and not eh_admin_principal(usuario_id)
+        and not acao.startswith("admin_")
+    ):
+        await query.answer(
+            "🛠️ Bot em manutenção. Tente "
+            "novamente em breve.",
+            show_alert=True,
+        )
+        return
 
     # =====================================================
     # ADMIN
