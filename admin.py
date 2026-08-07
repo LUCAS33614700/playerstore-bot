@@ -144,7 +144,25 @@ async def abrir_admin(
 
 def menu_admin():
 
+    manutencao_ativa = (
+        obter_configuracao("modo_manutencao")
+        == "1"
+    )
+
+    label_manutencao = (
+        "🔴 MANUTENÇÃO: LIGADA (tocar p/ desligar)"
+        if manutencao_ativa
+        else "🟢 MANUTENÇÃO: DESLIGADA (tocar p/ ligar)"
+    )
+
     botoes = [
+
+        [
+            InlineKeyboardButton(
+                label_manutencao,
+                callback_data="admin_toggle_manutencao",
+            )
+        ],
 
         [
             InlineKeyboardButton(
@@ -2375,6 +2393,35 @@ async def botoes_admin(
     # =====================================================
 
     if acao == "admin_menu":
+
+        await abrir_admin(
+            update,
+            context,
+        )
+
+        return
+
+    if acao == "admin_toggle_manutencao":
+
+        atual = obter_configuracao(
+            "modo_manutencao"
+        )
+
+        novo = (
+            "0" if atual == "1" else "1"
+        )
+
+        definir_configuracao(
+            "modo_manutencao",
+            novo,
+        )
+
+        await query.answer(
+            "🔴 Manutenção ativada."
+            if novo == "1"
+            else "🟢 Manutenção desativada.",
+            show_alert=True,
+        )
 
         await abrir_admin(
             update,
