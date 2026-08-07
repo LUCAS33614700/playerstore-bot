@@ -204,6 +204,15 @@ def criar_tabelas():
     except sqlite3.OperationalError:
         pass
 
+    try:
+        cursor.execute("""
+            ALTER TABLE usuarios
+            ADD COLUMN lembrete_enviado
+            INTEGER DEFAULT 0
+        """)
+    except sqlite3.OperationalError:
+        pass
+
     # -----------------------------------------------------
     # TÓPICOS DE SUPORTE (helpdesk em grupo com tópicos)
     # -----------------------------------------------------
@@ -572,6 +581,50 @@ def contar_compras_usuario(
         return int(resultado[0])
 
     return 0
+
+
+def usuario_ja_recebeu_lembrete(
+    usuario_id,
+):
+
+    conn = conectar()
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        SELECT lembrete_enviado
+        FROM usuarios
+        WHERE id = ?
+    """, (
+        usuario_id,
+    ))
+
+    resultado = cursor.fetchone()
+
+    conn.close()
+
+    if resultado:
+        return bool(resultado[0])
+
+    return False
+
+
+def marcar_lembrete_enviado(
+    usuario_id,
+):
+
+    conn = conectar()
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        UPDATE usuarios
+        SET lembrete_enviado = 1
+        WHERE id = ?
+    """, (
+        usuario_id,
+    ))
+
+    conn.commit()
+    conn.close()
 
 
 def salvar_topico_suporte(
