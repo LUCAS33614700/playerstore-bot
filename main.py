@@ -201,6 +201,7 @@ async def start(
 
 async def comprar_produto(
     query,
+    context,
     produto_id,
     usuario_id,
     quantidade=1,
@@ -270,7 +271,9 @@ async def comprar_produto(
     saldo = float(consultar_saldo(usuario_id) or 0)
 
     if saldo < valor_total:
-        await query.edit_message_text(
+        await editar_ou_substituir(
+            query,
+            context,
             "❌ *SALDO INSUFICIENTE*\n\n"
             "━━━━━━━━━━━━━━━━━━\n"
             f"🛒 *Produto:* {nome}\n"
@@ -417,7 +420,9 @@ async def comprar_produto(
         except Exception as erro_db:
             print("ERRO AO CANCELAR PEDIDO:", repr(erro_db))
 
-        await query.edit_message_text(
+        await editar_ou_substituir(
+            query,
+            context,
             "❌ *COMPRA NÃO CONCLUÍDA*\n\n"
             "O estoque de contas acabou antes da entrega.\n\n"
             "💰 O valor foi devolvido ao seu saldo.",
@@ -489,7 +494,9 @@ async def comprar_produto(
         ]
     )
 
-    await query.edit_message_text(
+    await editar_ou_substituir(
+        query,
+        context,
         texto,
         reply_markup=botoes,
         parse_mode="Markdown",
@@ -551,7 +558,9 @@ async def pedir_quantidade_produto(
     context.user_data["produto_quantidade_id"] = produto_id
     context.user_data["aguardando_valor"] = False
 
-    await query.edit_message_text(
+    await editar_ou_substituir(
+        query,
+        context,
         "🛍️ *COMPRAR EM QUANTIDADE*\n\n"
         f"🛒 *Produto:* {nome}\n"
         f"💰 *Preço unitário:* R$ {preco:.2f}\n"
@@ -739,7 +748,9 @@ async def pedir_valor_saldo(
     context.user_data["aguardando_quantidade"] = False
     context.user_data["produto_quantidade_id"] = None
 
-    await query.edit_message_text(
+    await editar_ou_substituir(
+        query,
+        context,
         "💵 *ADICIONAR SALDO*\n\n"
         "💠 PIX AUTOMÁTICO\n\n"
         "Digite o valor que deseja adicionar.\n\n"
@@ -1023,6 +1034,7 @@ async def processar_mensagem_texto(
 
 async def verificar_pagamento(
     query,
+    context,
     transacao_id,
 ):
     try:
@@ -1070,7 +1082,9 @@ async def verificar_pagamento(
             if resultado:
                 saldo = consultar_saldo(usuario_id)
 
-                await query.edit_message_text(
+                await editar_ou_substituir(
+                    query,
+                    context,
                     "✅ *PAGAMENTO CONFIRMADO!*\n\n"
                     f"💰 Valor recebido: R$ {valor:.2f}\n\n"
                     f"💳 Novo saldo: R$ {float(saldo):.2f}\n\n"
@@ -1103,7 +1117,9 @@ async def verificar_pagamento(
                 "cancelado",
             )
 
-            await query.edit_message_text(
+            await editar_ou_substituir(
+                query,
+                context,
                 "❌ *PAGAMENTO ENCERRADO*\n\n"
                 "A cobrança não foi aprovada.\n\n"
                 "💰 Nenhum saldo foi adicionado.",
@@ -1317,6 +1333,7 @@ async def parar_verificador(
 
 async def mostrar_estoque_logins(
     query,
+    context,
 ):
     produtos = listar_todos_produtos()
 
@@ -1352,7 +1369,9 @@ async def mostrar_estoque_logins(
                 f"📊 Disponível: {quantidade}\n\n"
             )
 
-    await query.edit_message_text(
+    await editar_ou_substituir(
+        query,
+        context,
         texto,
         reply_markup=InlineKeyboardMarkup(
             [
@@ -1529,7 +1548,9 @@ async def pedir_pesquisa_servico(
     context.user_data["aguardando_valor"] = False
     context.user_data["produto_quantidade_id"] = None
 
-    await query.edit_message_text(
+    await editar_ou_substituir(
+        query,
+        context,
         "🔎 *PESQUISAR SERVIÇO*\n\n"
         "Digite o nome do produto que você "
         "está procurando.\n\n"
@@ -1659,6 +1680,7 @@ async def processar_pesquisa_servico(
 
 async def mostrar_carrinho(
     query,
+    context,
     usuario_id,
 ):
 
@@ -1668,7 +1690,9 @@ async def mostrar_carrinho(
 
     if not itens:
 
-        await query.edit_message_text(
+        await editar_ou_substituir(
+            query,
+            context,
             "🛍️ *CARRINHO*\n\n"
             "Seu carrinho está vazio.\n\n"
             "Adicione produtos pelo catálogo.",
@@ -1772,7 +1796,9 @@ async def mostrar_carrinho(
         ]
     )
 
-    await query.edit_message_text(
+    await editar_ou_substituir(
+        query,
+        context,
         texto,
         reply_markup=InlineKeyboardMarkup(
             botoes
@@ -1783,6 +1809,7 @@ async def mostrar_carrinho(
 
 async def finalizar_compra_carrinho(
     query,
+    context,
     usuario_id,
 ):
 
@@ -1837,7 +1864,9 @@ async def finalizar_compra_carrinho(
             "e tente novamente."
         )
 
-        await query.edit_message_text(
+        await editar_ou_substituir(
+            query,
+            context,
             texto_erro,
             reply_markup=InlineKeyboardMarkup(
                 [
@@ -1859,7 +1888,9 @@ async def finalizar_compra_carrinho(
 
     if saldo < total:
 
-        await query.edit_message_text(
+        await editar_ou_substituir(
+            query,
+            context,
             "❌ *SALDO INSUFICIENTE*\n\n"
             f"💰 *Total do carrinho:* R$ {total:.2f}\n"
             f"💳 *Seu saldo:* R$ {saldo:.2f}\n"
@@ -1978,7 +2009,9 @@ async def finalizar_compra_carrinho(
             total,
         )
 
-        await query.edit_message_text(
+        await editar_ou_substituir(
+            query,
+            context,
             "❌ *COMPRA NÃO CONCLUÍDA*\n\n"
             "O estoque de algum item acabou "
             "durante o processamento.\n\n"
@@ -2032,7 +2065,9 @@ async def finalizar_compra_carrinho(
         "⚡ Entrega realizada automaticamente."
     )
 
-    await query.edit_message_text(
+    await editar_ou_substituir(
+        query,
+        context,
         texto,
         reply_markup=InlineKeyboardMarkup(
             [
@@ -2179,6 +2214,7 @@ async def botoes(
 
         await verificar_pagamento(
             query,
+            context,
             transacao_id,
         )
         return
@@ -2190,6 +2226,7 @@ async def botoes(
     if acao == "estoque_logins":
         await mostrar_estoque_logins(
             query,
+            context,
         )
         return
 
@@ -2211,6 +2248,7 @@ async def botoes(
     if acao == "carrinho":
         await mostrar_carrinho(
             query,
+            context,
             usuario_id,
         )
         return
@@ -2292,6 +2330,7 @@ async def botoes(
 
         await mostrar_carrinho(
             query,
+            context,
             usuario_id,
         )
         return
@@ -2308,6 +2347,7 @@ async def botoes(
 
         await mostrar_carrinho(
             query,
+            context,
             usuario_id,
         )
         return
@@ -2316,6 +2356,7 @@ async def botoes(
 
         await finalizar_compra_carrinho(
             query,
+            context,
             usuario_id,
         )
         return
@@ -2377,7 +2418,9 @@ async def botoes(
                 )
                 return
 
-        await query.edit_message_text(
+        await editar_ou_substituir(
+            query,
+            context,
             texto_catalogo,
             reply_markup=menu_categorias(),
             parse_mode="Markdown",
@@ -2538,7 +2581,9 @@ async def botoes(
             ],
         ]
 
-        await query.edit_message_text(
+        await editar_ou_substituir(
+            query,
+            context,
             texto,
             reply_markup=InlineKeyboardMarkup(
                 botoes_compra
@@ -2589,6 +2634,7 @@ async def botoes(
 
         await comprar_produto(
             query,
+            context,
             produto_id,
             usuario_id,
             quantidade,
@@ -2615,6 +2661,7 @@ async def botoes(
 
         await comprar_produto(
             query,
+            context,
             produto_id,
             usuario_id,
             1,
@@ -2645,7 +2692,9 @@ async def botoes(
             ],
         ]
 
-        await query.edit_message_text(
+        await editar_ou_substituir(
+            query,
+            context,
             "💳 *MEU SALDO*\n\n"
             f"💰 Saldo atual: R$ {saldo:.2f}\n\n"
             "Escolha uma opção:",
@@ -2709,7 +2758,9 @@ async def botoes(
             ]
         )
 
-        await query.edit_message_text(
+        await editar_ou_substituir(
+            query,
+            context,
             "👥 *GRUPO DE CLIENTES*\n\n"
             "Entre no nosso grupo para acompanhar "
             "novidades e referências.",
@@ -2742,7 +2793,9 @@ async def botoes(
             else "Não informado"
         )
 
-        await query.edit_message_text(
+        await editar_ou_substituir(
+            query,
+            context,
             "👤 *MEU PERFIL*\n\n"
             f"🧑 Nome: {nome}\n"
             f"🔗 Username: {texto_username}\n"
@@ -2833,7 +2886,9 @@ async def botoes(
     # =====================================================
 
     if acao == "ajuda":
-        await query.edit_message_text(
+        await editar_ou_substituir(
+            query,
+            context,
             "❓ *AJUDA*\n\n"
             "🛒 *Comprar produto*\n"
             "Escolha um produto no catálogo e clique em Comprar.\n\n"
