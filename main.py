@@ -11,6 +11,7 @@ from telegram import (
     CopyTextButton,
     InlineQueryResultArticle,
     InputTextMessageContent,
+    BotCommand,
 )
 
 from telegram.ext import (
@@ -58,6 +59,8 @@ from database import (
     salvar_topico_suporte,
     obter_topico_suporte,
     obter_usuario_por_topico,
+    usuario_ja_recebeu_lembrete,
+    marcar_lembrete_enviado,
 )
 
 from menu import menu_principal
@@ -169,6 +172,82 @@ async def enviar_menu_principal(
 
 
 # =========================================================
+# LEMBRETE DE COMPRA (5 MINUTOS APÓS O /start)
+# =========================================================
+
+LEMBRETE_DELAY_SEGUNDOS = 5 * 60
+
+
+async def enviar_lembrete_compra(
+    bot,
+    usuario_id,
+):
+
+    await asyncio.sleep(
+        LEMBRETE_DELAY_SEGUNDOS
+    )
+
+    try:
+
+        if usuario_ja_recebeu_lembrete(
+            usuario_id
+        ):
+            return
+
+        if contar_compras_usuario(
+            usuario_id
+        ) > 0:
+            return
+
+        if modo_manutencao_ativo():
+            return
+
+        marcar_lembrete_enviado(
+            usuario_id
+        )
+
+        await bot.send_message(
+            chat_id=usuario_id,
+            text=(
+                "👋 Olá! Vi que você ainda não "
+                "realizou nenhuma compra.\n\n"
+                "Posso te ajudar? Escolha uma "
+                "das opções abaixo 👇"
+            ),
+            reply_markup=InlineKeyboardMarkup(
+                [
+                    [
+                        InlineKeyboardButton(
+                            "🆘 Suporte",
+                            callback_data="suporte",
+                        ),
+                        InlineKeyboardButton(
+                            "🛍️ Comprar Agora",
+                            callback_data="catalogo",
+                        ),
+                    ],
+                    [
+                        InlineKeyboardButton(
+                            "🛒 Carrinho",
+                            callback_data="carrinho",
+                        ),
+                        InlineKeyboardButton(
+                            "👀 Termos",
+                            callback_data="termos",
+                        ),
+                    ],
+                ]
+            ),
+        )
+
+    except Exception as erro:
+        print(
+            "ERRO NO LEMBRETE DE COMPRA:",
+            repr(erro),
+        )
+
+
+# =========================================================
 # START
 # =========================================================
 
@@ -234,6 +313,14 @@ async def start(
             update.message.chat_id,
             context,
             texto,
+        )
+
+    if not eh_admin_principal(usuario.id):
+        asyncio.create_task(
+            enviar_lembrete_compra(
+                context.bot,
+                usuario.id,
+            )
         )
 
 
@@ -1387,6 +1474,33 @@ async def loop_verificador_pagamentos(
 async def iniciar_verificador(
     application: Application,
 ):
+    try:
+        await application.bot.set_my_commands(
+            [
+                BotCommand(
+                    "start",
+                    "Iniciar Bot",
+                ),
+                BotCommand(
+                    "pix",
+                    "Adicionar saldo",
+                ),
+                BotCommand(
+                    "admin",
+                    "Menu adm",
+                ),
+                BotCommand(
+                    "id",
+                    "Mostrar seu ID do Telegram",
+                ),
+            ]
+        )
+    except Exception as erro:
+        print(
+            "ERRO AO REGISTRAR COMANDOS:",
+            repr(erro),
+        )
+
     task = asyncio.create_task(
         loop_verificador_pagamentos(application),
         name=VERIFICADOR_TASK,
@@ -1865,6 +1979,79 @@ async def processar_suporte(
     )
 
     return True
+
+
+# =========================================================
+# COMANDO /pix (ATALHO PRA ADICIONAR SALDO)
+# =========================================================
+
+async def comando_pix(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+):
+
+    usuario = update.effective_user
+
+    if not usuario or not update.message:
+        return
+
+    if modo_manutencao_ativo() and not eh_admin_principal(
+        usuario.id
+    ):
+        await update.message.reply_text(
+            TEXTO_MANUTENCAO,
+            parse_mode="Markdown",
+        )
+        return
+
+    context.user_data["aguardando_valor"] = True
+    context.user_data["valor_saldo"] = None
+    context.user_data["aguardando_quantidade"] = False
+    context.user_data["produto_quantidade_id"] = None
+
+    await update.message.reply_text(
+        "💵 *ADICIONAR SALDO*\n\n"
+        "💠 PIX AUTOMÁTICO\n\n"
+        "Digite o valor que deseja adicionar.\n\n"
+        f"▫️ Mínimo: R$ {VALOR_MINIMO:.2f}\n"
+        f"▫️ Máximo: R$ {VALOR_MAXIMO:.2f}\n\n"
+        "Exemplo:\n"
+        "`10`\n"
+        "`25,50`\n"
+        "`100`",
+        reply_markup=InlineKeyboardMarkup(
+            [
+                [
+                    InlineKeyboardButton(
+                        "⬅️ Voltar",
+                        callback_data="voltar_menu",
+                    )
+                ]
+            ]
+        ),
+        parse_mode="Markdown",
+    )
+
+
+# =========================================================
+# COMANDO /id (MOSTRA O ID DO TELEGRAM)
+# =========================================================
+
+async def comando_id(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+):
+
+    usuario = update.effective_user
+
+    if not usuario or not update.message:
+        return
+
+    await update.message.reply_text(
+        "🆔 *SEU ID DO TELEGRAM*\n\n"
+        f"`{usuario.id}`",
+        parse_mode="Markdown",
+    )
 
 
 # =========================================================
@@ -3596,6 +3783,20 @@ def main():
         CommandHandler(
             "grupoid",
             comando_grupo_id,
+        )
+    )
+
+    application.add_handler(
+        CommandHandler(
+            "pix",
+            comando_pix,
+        )
+    )
+
+    application.add_handler(
+        CommandHandler(
+            "id",
+            comando_id,
         )
     )
 
