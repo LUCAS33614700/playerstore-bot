@@ -1,4 +1,5 @@
 import asyncio
+import re
 import base64
 import binascii
 import io
@@ -26,6 +27,7 @@ from config import (
     BOT_TOKEN,
     verificar_configuracao,
     GRUPO_CLIENTES,
+    ADMIN_ID,
 )
 
 from database import (
@@ -978,15 +980,24 @@ async def processar_midia_generico(
     context: ContextTypes.DEFAULT_TYPE,
 ):
     try:
-        await processar_admin_midia(
+        tratado_admin = await processar_admin_midia(
             update,
             context,
         )
+        if tratado_admin:
+            return
     except Exception as erro:
         print(
             "ERRO NO PROCESSAMENTO DE MÍDIA ADMIN:",
             repr(erro),
         )
+
+    if context.user_data.get("aguardando_suporte"):
+        await processar_suporte(
+            update,
+            context,
+        )
+        return
 
 
 # =========================================================
@@ -1022,6 +1033,13 @@ async def processar_mensagem_texto(
 
     if context.user_data.get("aguardando_pesquisa"):
         await processar_pesquisa_servico(
+            update,
+            context,
+        )
+        return
+
+    if context.user_data.get("aguardando_suporte"):
+        await processar_suporte(
             update,
             context,
         )
@@ -1532,6 +1550,250 @@ async def pesquisa_inline(
             "ERRO NA BUSCA INLINE:",
             repr(erro),
         )
+
+
+# =========================================================
+# SUPORTE (TICKET)
+# =========================================================
+
+async def pedir_suporte(
+    query,
+    context,
+):
+
+    context.user_data["aguardando_suporte"] = True
+    context.user_data["aguardando_quantidade"] = False
+    context.user_data["aguardando_valor"] = False
+    context.user_data["aguardando_pesquisa"] = False
+
+    await editar_ou_substituir(
+        query,
+        context,
+        "🆘 *SUPORTE*\n\n"
+        "Descreva o seu problema com clareza.\n\n"
+        "📌 Lembre-se de enviar:\n"
+        "• 📸 Print do erro\n"
+        "• 🔑 Login exatamente como recebido\n"
+        "• 📅 Data da compra\n\n"
+        "Você pode mandar tudo em uma mensagem só "
+        "(inclusive com foto). Nossa equipe "
+        "responde por aqui mesmo, em até 24-48h.",
+        reply_markup=InlineKeyboardMarkup(
+            [
+                [
+                    InlineKeyboardButton(
+                        "❌ Cancelar",
+                        callback_data="voltar_menu",
+                    )
+                ]
+            ]
+        ),
+        parse_mode="Markdown",
+    )
+
+
+async def processar_suporte(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+):
+
+    if not context.user_data.get("aguardando_suporte"):
+        return False
+
+    if not update.message:
+        return True
+
+    usuario = update.effective_user
+
+    if not usuario:
+        return True
+
+    context.user_data["aguardando_suporte"] = False
+
+    nome = usuario.first_name or "cliente"
+    username_texto = (
+        f"@{usuario.username}"
+        if usuario.username
+        else "Não informado"
+    )
+
+    texto_info = (
+        "📩 *NOVO TICKET DE SUPORTE*\n\n"
+        f"👤 Nome: {nome}\n"
+        f"🔗 Username: {username_texto}\n"
+        f"🆔 ID do cliente: `{usuario.id}`\n\n"
+        "↩️ Para responder, dê *Reply* nesta "
+        "mensagem com a resposta (texto ou foto)."
+    )
+
+    try:
+        await update.message.forward(
+            chat_id=ADMIN_ID
+        )
+
+        await context.bot.send_message(
+            chat_id=ADMIN_ID,
+            text=texto_info,
+            parse_mode="Markdown",
+        )
+
+    except Exception as erro:
+        print(
+            "ERRO AO ENCAMINHAR TICKET DE SUPORTE:",
+            repr(erro),
+        )
+
+        await update.message.reply_text(
+            "❌ Não foi possível enviar sua "
+            "mensagem ao suporte agora. Tente "
+            "novamente em instantes."
+        )
+
+        return True
+
+    await update.message.reply_text(
+        "✅ *Mensagem enviada ao suporte!*\n\n"
+        "Nossa equipe vai responder por aqui "
+        "mesmo assim que possível.",
+        reply_markup=InlineKeyboardMarkup(
+            [
+                [
+                    InlineKeyboardButton(
+                        "↩️ Voltar ao menu",
+                        callback_data="voltar_menu",
+                    )
+                ]
+            ]
+        ),
+        parse_mode="Markdown",
+    )
+
+    return True
+
+
+async def responder_suporte_admin(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+):
+
+    usuario = update.effective_user
+
+    if not usuario:
+        return
+
+    try:
+        if int(usuario.id) != int(ADMIN_ID):
+            return
+    except (ValueError, TypeError):
+        return
+
+    mensagem = update.message
+
+    if not mensagem or not mensagem.reply_to_message:
+        return
+
+    texto_original = (
+        mensagem.reply_to_message.text or ""
+    )
+
+    correspondencia = re.search(
+        r"ID do cliente:\s*`?(\d+)`?",
+        texto_original,
+    )
+
+    if not correspondencia:
+        return
+
+    cliente_id = int(
+        correspondencia.group(1)
+    )
+
+    try:
+        if mensagem.text:
+
+            await context.bot.send_message(
+                chat_id=cliente_id,
+                text=(
+                    "💬 *Resposta do suporte:*\n\n"
+                    f"{mensagem.text}"
+                ),
+                parse_mode="Markdown",
+            )
+
+        elif mensagem.photo:
+
+            legenda = mensagem.caption or ""
+
+            await context.bot.send_photo(
+                chat_id=cliente_id,
+                photo=mensagem.photo[-1].file_id,
+                caption=(
+                    "💬 *Resposta do suporte:*\n\n"
+                    f"{legenda}"
+                ),
+                parse_mode="Markdown",
+            )
+
+        else:
+            return
+
+        await mensagem.reply_text(
+            "✅ Resposta enviada ao cliente."
+        )
+
+    except Exception as erro:
+        print(
+            "ERRO AO RESPONDER TICKET DE SUPORTE:",
+            repr(erro),
+        )
+
+        await mensagem.reply_text(
+            "❌ Não foi possível enviar a resposta "
+            "ao cliente (ele pode ter bloqueado "
+            "o bot)."
+        )
+
+
+# =========================================================
+# JOGOS NA TV
+# =========================================================
+
+async def mostrar_jogos_tv(
+    query,
+    context,
+):
+
+    jogos_texto = obter_configuracao(
+        "jogos_tv_texto"
+    )
+
+    if not jogos_texto:
+        texto = (
+            "⚽ *JOGOS NA TV*\n\n"
+            "❌ Nenhum jogo cadastrado no momento."
+        )
+    else:
+        texto = (
+            "⚽ *JOGOS NA TV*\n\n"
+            f"{jogos_texto}"
+        )
+
+    await editar_ou_substituir(
+        query,
+        context,
+        texto,
+        reply_markup=InlineKeyboardMarkup(
+            [
+                [
+                    InlineKeyboardButton(
+                        "↩️ Voltar ao menu",
+                        callback_data="voltar_menu",
+                    )
+                ]
+            ]
+        ),
+        parse_mode="Markdown",
+    )
 
 
 # =========================================================
@@ -2917,74 +3179,30 @@ async def botoes(
         return
 
     # =====================================================
-    # TERMOS DE USO
+    # SUPORTE
     # =====================================================
 
-    if acao == "termos":
-
-        texto_termos = (
-            "📜 𝗧𝗘𝗥𝗠𝗢𝗦 𝗗𝗘 𝗨𝗦𝗢\n"
-            "━━━━━━━━━━━━━━━━━━\n\n"
-            "⚠️ Ao confirmar uma compra, você concorda "
-            "com todas as regras abaixo.\n\n"
-            "━━━━━━━━━━━━━━━━━━\n"
-            "🕐 HORÁRIO DE ATENDIMENTO\n"
-            "━━━━━━━━━━━━━━━━━━\n\n"
-            "Nosso suporte funciona, em geral, das 11h "
-            "às 21h.\n"
-            "Aos finais de semana e feriados o "
-            "atendimento pode estar indisponível.\n\n"
-            "━━━━━━━━━━━━━━━━━━\n"
-            "🆘 COMO SOLICITAR SUPORTE\n"
-            "━━━━━━━━━━━━━━━━━━\n\n"
-            "1️⃣ Clique em SUPORTE no menu do bot\n"
-            "2️⃣ Descreva o seu problema com clareza\n"
-            "3️⃣ Aguarde um administrador responder\n\n"
-            "📌 É obrigatório enviar:\n"
-            "• 📸 Print do erro\n"
-            "• 🔑 Login exatamente como recebido\n"
-            "• 📅 Data da compra\n\n"
-            "Sem esses dados não é possível dar "
-            "suporte.\n\n"
-            "━━━━━━━━━━━━━━━━━━\n"
-            "❗ REGRAS IMPORTANTES\n"
-            "━━━━━━━━━━━━━━━━━━\n\n"
-            "• ❌ Não altere o e-mail das contas — "
-            "perde o suporte\n"
-            "• 💰 Reembolso só em saldo do bot, nunca "
-            "em Pix\n"
-            "• 🤝 Respeito é essencial — ofensas levam "
-            "a banimento e perda do saldo\n\n"
-            "━━━━━━━━━━━━━━━━━━\n"
-            "⏳ PRAZOS\n"
-            "━━━━━━━━━━━━━━━━━━\n\n"
-            "• Retorno em até 24 a 48 horas\n"
-            "• Se passar disso, você recebe em saldo o "
-            "valor proporcional aos dias pendentes\n"
-            "• Problemas com login online: resolvidos "
-            "na hora\n\n"
-            "━━━━━━━━━━━━━━━━━━\n\n"
-            "✅ Ao prosseguir, você confirma que leu e "
-            "aceita."
-        )
-
-        await editar_ou_substituir(
+    if acao == "suporte":
+        await pedir_suporte(
             query,
             context,
-            texto_termos,
-            reply_markup=InlineKeyboardMarkup(
-                [
-                    [
-                        InlineKeyboardButton(
-                            "⬅️ Voltar",
-                            callback_data="voltar_menu",
-                        )
-                    ]
-                ]
-            ),
-            parse_mode="Markdown",
         )
         return
+
+    # =====================================================
+    # JOGOS NA TV
+    # =====================================================
+
+    if acao == "jogos_tv":
+        await mostrar_jogos_tv(
+            query,
+            context,
+        )
+        return
+
+    # =====================================================
+    # TERMOS DE USO (bloco duplicado removido)
+    # =====================================================
 
     # =====================================================
     # ESTOQUE VAZIO
@@ -3058,6 +3276,15 @@ def main():
     application.add_handler(
         CallbackQueryHandler(
             botoes
+        )
+    )
+
+    application.add_handler(
+        MessageHandler(
+            filters.REPLY
+            & filters.User(user_id=int(ADMIN_ID))
+            & (filters.TEXT | filters.PHOTO),
+            responder_suporte_admin,
         )
     )
 
