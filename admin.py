@@ -183,6 +183,13 @@ def menu_admin():
 
         [
             InlineKeyboardButton(
+                "⚽ JOGOS NA TV",
+                callback_data="admin_jogos_tv",
+            )
+        ],
+
+        [
+            InlineKeyboardButton(
                 "⬅️ VOLTAR AO MENU",
                 callback_data="admin_voltar",
             )
@@ -963,6 +970,38 @@ async def processar_admin_texto(
 
         return True
 
+    # =====================================================
+    # JOGOS NA TV
+    # =====================================================
+
+    if acao == "editar_jogos_tv":
+
+        definir_configuracao(
+            "jogos_tv_texto",
+            texto,
+        )
+
+        limpar_estado(context)
+
+        await update.message.reply_text(
+            "✅ *LISTA DE JOGOS ATUALIZADA!*\n\n"
+            "Ela já está valendo pro botão "
+            "\"⚽ JOGOS NA TV\" do menu.",
+            reply_markup=InlineKeyboardMarkup(
+                [
+                    [
+                        InlineKeyboardButton(
+                            "👑 PAINEL ADMIN",
+                            callback_data="admin_menu",
+                        )
+                    ]
+                ]
+            ),
+            parse_mode="Markdown",
+        )
+
+        return True
+
     return False
 
 
@@ -1436,6 +1475,63 @@ async def iniciar_imagem_catalogo(
         texto,
         reply_markup=InlineKeyboardMarkup(
             botoes
+        ),
+        parse_mode="Markdown",
+    )
+
+
+# =========================================================
+# JOGOS NA TV
+# =========================================================
+
+async def iniciar_jogos_tv(
+    query,
+    context,
+):
+
+    if not await verificar_admin_query(query):
+
+        return
+
+    limpar_estado(context)
+
+    context.user_data[
+        "admin_acao"
+    ] = "editar_jogos_tv"
+
+    jogos_atual = obter_configuracao(
+        "jogos_tv_texto"
+    )
+
+    texto = (
+        "⚽ *JOGOS NA TV*\n\n"
+        "Envie o texto com a lista de jogos "
+        "que vai aparecer pros clientes "
+        "(pode ser em várias linhas).\n\n"
+        "Exemplo:\n"
+        "`🔴 16h - Flamengo x Palmeiras`\n"
+        "`🔵 18h30 - Corinthians x São Paulo`\n\n"
+    )
+
+    if jogos_atual:
+        texto += (
+            "📋 *Lista atual:*\n\n"
+            f"{jogos_atual}\n\n"
+        )
+
+    texto += "⬅️ Para cancelar, clique no botão abaixo."
+
+    await query.edit_message_text(
+        texto,
+        reply_markup=InlineKeyboardMarkup(
+            [
+                [
+                    InlineKeyboardButton(
+                        "❌ CANCELAR",
+                        callback_data="admin_menu",
+                    )
+                ]
+            ]
         ),
         parse_mode="Markdown",
     )
@@ -2084,6 +2180,15 @@ async def botoes_admin(
     if acao == "admin_remover_imagem_catalogo":
 
         await remover_imagem_catalogo(
+            query,
+            context,
+        )
+
+        return
+
+    if acao == "admin_jogos_tv":
+
+        await iniciar_jogos_tv(
             query,
             context,
         )
