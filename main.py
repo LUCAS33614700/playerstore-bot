@@ -55,6 +55,9 @@ from database import (
     buscar_produtos_por_nome,
     obter_imagem_produto,
     contar_compras_usuario,
+    salvar_topico_suporte,
+    obter_topico_suporte,
+    obter_usuario_por_topico,
 )
 
 from menu import menu_principal
@@ -1617,6 +1620,102 @@ async def processar_suporte(
         else "Não informado"
     )
 
+    grupo_suporte_id = obter_configuracao(
+        "suporte_grupo_id"
+    )
+
+    # -----------------------------------------------------
+    # CAMINHO 1: GRUPO DE SUPORTE COM TÓPICOS (HELPDESK)
+    # -----------------------------------------------------
+
+    if grupo_suporte_id:
+
+        try:
+            grupo_id_int = int(grupo_suporte_id)
+        except ValueError:
+            grupo_id_int = None
+
+        if grupo_id_int:
+
+            topico_id = obter_topico_suporte(
+                usuario.id
+            )
+
+            try:
+
+                if not topico_id:
+
+                    nome_topico = (
+                        f"{nome} "
+                        f"(@{usuario.username or 'sem_user'}) "
+                        f"#{usuario.id}"
+                    )
+
+                    topico = await context.bot.create_forum_topic(
+                        chat_id=grupo_id_int,
+                        name=nome_topico[:128],
+                    )
+
+                    topico_id = (
+                        topico.message_thread_id
+                    )
+
+                    salvar_topico_suporte(
+                        usuario.id,
+                        topico_id,
+                    )
+
+                    await context.bot.send_message(
+                        chat_id=grupo_id_int,
+                        message_thread_id=topico_id,
+                        text=(
+                            "📩 *NOVO TICKET*\n\n"
+                            f"👤 Nome: {nome}\n"
+                            f"🔗 Username: {username_texto}\n"
+                            f"🆔 ID: `{usuario.id}`\n\n"
+                            "Responda direto aqui neste "
+                            "tópico — a mensagem vai "
+                            "pro cliente automaticamente."
+                        ),
+                        parse_mode="Markdown",
+                    )
+
+                await update.message.forward(
+                    chat_id=grupo_id_int,
+                    message_thread_id=topico_id,
+                )
+
+                await update.message.reply_text(
+                    "✅ *Mensagem enviada ao suporte!*\n\n"
+                    "Nossa equipe vai responder por "
+                    "aqui mesmo assim que possível.",
+                    reply_markup=InlineKeyboardMarkup(
+                        [
+                            [
+                                InlineKeyboardButton(
+                                    "↩️ Voltar ao menu",
+                                    callback_data="voltar_menu",
+                                )
+                            ]
+                        ]
+                    ),
+                    parse_mode="Markdown",
+                )
+
+                return True
+
+            except Exception as erro:
+                print(
+                    "ERRO NO GRUPO DE SUPORTE COM "
+                    "TÓPICOS:",
+                    repr(erro),
+                )
+                # Cai pro caminho antigo abaixo.
+
+    # -----------------------------------------------------
+    # CAMINHO 2 (FALLBACK): CHAT INDIVIDUAL
+    # -----------------------------------------------------
+
     texto_info = (
         "📩 *NOVO TICKET DE SUPORTE*\n\n"
         f"👤 Nome: {nome}\n"
@@ -1626,13 +1725,18 @@ async def processar_suporte(
         "mensagem com a resposta (texto ou foto)."
     )
 
+    destino = (
+        obter_configuracao("suporte_chat_id")
+        or ADMIN_ID
+    )
+
     try:
         await update.message.forward(
-            chat_id=ADMIN_ID
+            chat_id=destino
         )
 
         await context.bot.send_message(
-            chat_id=ADMIN_ID,
+            chat_id=destino,
             text=texto_info,
             parse_mode="Markdown",
         )
@@ -1671,6 +1775,113 @@ async def processar_suporte(
     return True
 
 
+# =========================================================
+# COMANDO /grupoid (AJUDA A CONFIGURAR O GRUPO DE SUPORTE)
+# =========================================================
+
+async def comando_grupo_id(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+):
+
+    if not update.effective_chat:
+        return
+
+    await update.message.reply_text(
+        "🆔 *ID deste chat:*\n"
+        f"`{update.effective_chat.id}`\n\n"
+        "Cole esse número no painel admin, em "
+        "\"🗂️ GRUPO DE SUPORTE (TÓPICOS)\".",
+        parse_mode="Markdown",
+    )
+
+
+# =========================================================
+# RESPONDER SUPORTE DE DENTRO DO GRUPO (TÓPICOS)
+# =========================================================
+
+async def responder_suporte_topico(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+):
+
+    mensagem = update.message
+
+    if not mensagem:
+        return
+
+    grupo_suporte_id = obter_configuracao(
+        "suporte_grupo_id"
+    )
+
+    if not grupo_suporte_id:
+        return
+
+    try:
+        if int(grupo_suporte_id) != int(
+            mensagem.chat_id
+        ):
+            return
+    except (ValueError, TypeError):
+        return
+
+    topico_id = mensagem.message_thread_id
+
+    if not topico_id:
+        return
+
+    cliente_id = obter_usuario_por_topico(
+        topico_id
+    )
+
+    if not cliente_id:
+        return
+
+    try:
+        if mensagem.text:
+
+            await context.bot.send_message(
+                chat_id=cliente_id,
+                text=(
+                    "💬 *Resposta do suporte:*\n\n"
+                    f"{mensagem.text}"
+                ),
+                parse_mode="Markdown",
+            )
+
+        elif mensagem.photo:
+
+            legenda = mensagem.caption or ""
+
+            await context.bot.send_photo(
+                chat_id=cliente_id,
+                photo=mensagem.photo[-1].file_id,
+                caption=(
+                    "💬 *Resposta do suporte:*\n\n"
+                    f"{legenda}"
+                ),
+                parse_mode="Markdown",
+            )
+
+        else:
+            return
+
+    except Exception as erro:
+        print(
+            "ERRO AO RESPONDER TICKET (TÓPICO):",
+            repr(erro),
+        )
+
+        try:
+            await mensagem.reply_text(
+                "❌ Não foi possível entregar a "
+                "resposta (o cliente pode ter "
+                "bloqueado o bot)."
+            )
+        except Exception:
+            pass
+
+
 async def responder_suporte_admin(
     update: Update,
     context: ContextTypes.DEFAULT_TYPE,
@@ -1681,10 +1892,20 @@ async def responder_suporte_admin(
     if not usuario:
         return
 
-    try:
-        if int(usuario.id) != int(ADMIN_ID):
-            return
-    except (ValueError, TypeError):
+    destino_configurado = obter_configuracao(
+        "suporte_chat_id"
+    )
+
+    contas_autorizadas = {
+        str(ADMIN_ID)
+    }
+
+    if destino_configurado:
+        contas_autorizadas.add(
+            str(destino_configurado)
+        )
+
+    if str(usuario.id) not in contas_autorizadas:
         return
 
     mensagem = update.message
@@ -3268,6 +3489,13 @@ def main():
     )
 
     application.add_handler(
+        CommandHandler(
+            "grupoid",
+            comando_grupo_id,
+        )
+    )
+
+    application.add_handler(
         InlineQueryHandler(
             pesquisa_inline
         )
@@ -3281,8 +3509,16 @@ def main():
 
     application.add_handler(
         MessageHandler(
-            filters.REPLY
-            & filters.User(user_id=int(ADMIN_ID))
+            filters.ChatType.GROUPS
+            & (filters.TEXT | filters.PHOTO),
+            responder_suporte_topico,
+        )
+    )
+
+    application.add_handler(
+        MessageHandler(
+            filters.ChatType.PRIVATE
+            & filters.REPLY
             & (filters.TEXT | filters.PHOTO),
             responder_suporte_admin,
         )
