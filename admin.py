@@ -190,6 +190,20 @@ def menu_admin():
 
         [
             InlineKeyboardButton(
+                "🆘 CHAT DE SUPORTE",
+                callback_data="admin_chat_suporte",
+            )
+        ],
+
+        [
+            InlineKeyboardButton(
+                "🗂️ GRUPO DE SUPORTE (TÓPICOS)",
+                callback_data="admin_grupo_suporte",
+            )
+        ],
+
+        [
+            InlineKeyboardButton(
                 "⬅️ VOLTAR AO MENU",
                 callback_data="admin_voltar",
             )
@@ -1002,6 +1016,107 @@ async def processar_admin_texto(
 
         return True
 
+    # =====================================================
+    # CHAT DE SUPORTE (DESTINO DOS TICKETS)
+    # =====================================================
+
+    if acao == "definir_chat_suporte":
+
+        valor = texto.strip()
+
+        if not valor.lstrip("-").isdigit():
+
+            await update.message.reply_text(
+                "❌ Isso não parece um ID válido.\n\n"
+                "Digite só o número (ex: `123456789`).",
+                parse_mode="Markdown",
+            )
+
+            return True
+
+        definir_configuracao(
+            "suporte_chat_id",
+            valor,
+        )
+
+        limpar_estado(context)
+
+        await update.message.reply_text(
+            "✅ *CHAT DE SUPORTE ATUALIZADO!*\n\n"
+            f"📋 Novo ID: `{valor}`\n\n"
+            "Os próximos tickets de suporte vão "
+            "chegar por lá. Se essa conta ainda "
+            "não deu `/start` no bot, peça pra "
+            "ela fazer isso agora — senão o "
+            "envio vai falhar.",
+            reply_markup=InlineKeyboardMarkup(
+                [
+                    [
+                        InlineKeyboardButton(
+                            "👑 PAINEL ADMIN",
+                            callback_data="admin_menu",
+                        )
+                    ]
+                ]
+            ),
+            parse_mode="Markdown",
+        )
+
+        return True
+
+    if acao == "definir_grupo_suporte":
+
+        valor = texto.strip()
+
+        if not (
+            valor.lstrip("-").isdigit()
+            and valor.startswith("-")
+        ):
+
+            await update.message.reply_text(
+                "❌ Isso não parece um ID de grupo "
+                "válido.\n\n"
+                "IDs de grupo/supergrupo começam "
+                "com `-` (ex: `-1001234567890`). "
+                "Use o comando `/grupoid` dentro "
+                "do grupo pra pegar o ID certo.",
+                parse_mode="Markdown",
+            )
+
+            return True
+
+        definir_configuracao(
+            "suporte_grupo_id",
+            valor,
+        )
+
+        limpar_estado(context)
+
+        await update.message.reply_text(
+            "✅ *GRUPO DE SUPORTE ATUALIZADO!*\n\n"
+            f"📋 Novo ID: `{valor}`\n\n"
+            "A partir de agora, cada cliente que "
+            "abrir um ticket ganha um tópico "
+            "novo nesse grupo.\n\n"
+            "⚠️ Confirme que o bot é *admin* do "
+            "grupo com permissão de \"Gerenciar "
+            "Tópicos\", senão a criação dos "
+            "tópicos vai falhar.",
+            reply_markup=InlineKeyboardMarkup(
+                [
+                    [
+                        InlineKeyboardButton(
+                            "👑 PAINEL ADMIN",
+                            callback_data="admin_menu",
+                        )
+                    ]
+                ]
+            ),
+            parse_mode="Markdown",
+        )
+
+        return True
+
     return False
 
 
@@ -1481,6 +1596,79 @@ async def iniciar_imagem_catalogo(
 
 
 # =========================================================
+# GRUPO DE SUPORTE COM TÓPICOS (HELPDESK)
+# =========================================================
+
+async def iniciar_grupo_suporte(
+    query,
+    context,
+):
+
+    if not await verificar_admin_query(query):
+
+        return
+
+    limpar_estado(context)
+
+    context.user_data[
+        "admin_acao"
+    ] = "definir_grupo_suporte"
+
+    grupo_atual = obter_configuracao(
+        "suporte_grupo_id"
+    )
+
+    texto = (
+        "🗂️ *GRUPO DE SUPORTE (TÓPICOS)*\n\n"
+        "Cada cliente que abrir um ticket "
+        "ganha um tópico separado dentro de "
+        "um grupo — organizado tipo um "
+        "helpdesk, e qualquer pessoa que "
+        "você adicionar no grupo pode "
+        "responder.\n\n"
+        "*Como configurar:*\n\n"
+        "1️⃣ Crie um grupo novo no Telegram\n"
+        "2️⃣ Ative *Tópicos* nas configurações "
+        "do grupo (Editar → Tópicos)\n"
+        "3️⃣ Adicione este bot como *admin* do "
+        "grupo, com permissão de "
+        "\"Gerenciar Tópicos\"\n"
+        "4️⃣ Dentro do grupo, mande o comando "
+        "`/grupoid` — o bot responde com o ID\n"
+        "5️⃣ Cole esse ID aqui\n\n"
+    )
+
+    if grupo_atual:
+        texto += (
+            f"📋 *ID atual:* `{grupo_atual}`\n\n"
+        )
+    else:
+        texto += (
+            "📋 *Nenhum cadastrado* — os tickets "
+            "continuam indo pro chat de suporte "
+            "individual (se configurado) ou pra "
+            "conta admin padrão.\n\n"
+        )
+
+    texto += "⬅️ Para cancelar, clique no botão abaixo."
+
+    await query.edit_message_text(
+        texto,
+        reply_markup=InlineKeyboardMarkup(
+            [
+                [
+                    InlineKeyboardButton(
+                        "❌ CANCELAR",
+                        callback_data="admin_menu",
+                    )
+                ]
+            ]
+        ),
+        parse_mode="Markdown",
+    )
+
+
+# =========================================================
 # JOGOS NA TV
 # =========================================================
 
@@ -1517,6 +1705,75 @@ async def iniciar_jogos_tv(
         texto += (
             "📋 *Lista atual:*\n\n"
             f"{jogos_atual}\n\n"
+        )
+
+    texto += "⬅️ Para cancelar, clique no botão abaixo."
+
+    await query.edit_message_text(
+        texto,
+        reply_markup=InlineKeyboardMarkup(
+            [
+                [
+                    InlineKeyboardButton(
+                        "❌ CANCELAR",
+                        callback_data="admin_menu",
+                    )
+                ]
+            ]
+        ),
+        parse_mode="Markdown",
+    )
+
+
+# =========================================================
+# CHAT DE SUPORTE (DESTINO DOS TICKETS)
+# =========================================================
+
+async def iniciar_chat_suporte(
+    query,
+    context,
+):
+
+    if not await verificar_admin_query(query):
+
+        return
+
+    limpar_estado(context)
+
+    context.user_data[
+        "admin_acao"
+    ] = "definir_chat_suporte"
+
+    destino_atual = obter_configuracao(
+        "suporte_chat_id"
+    )
+
+    texto = (
+        "🆘 *CHAT DE SUPORTE*\n\n"
+        "Envie o ID numérico da conta do "
+        "Telegram que vai receber os tickets "
+        "de suporte (pode ser diferente da "
+        "conta admin do bot).\n\n"
+        "⚠️ *Importante:* essa conta precisa "
+        "ter dado `/start` no bot pelo menos "
+        "uma vez antes — sem isso o Telegram "
+        "não deixa o bot enviar mensagem pra "
+        "ela.\n\n"
+        "Pra descobrir o ID de uma conta, "
+        "peça pra ela mandar `/start` nesse "
+        "bot e me avise; ou use um bot como "
+        "@userinfobot.\n\n"
+    )
+
+    if destino_atual:
+        texto += (
+            f"📋 *ID atual:* `{destino_atual}`\n\n"
+        )
+    else:
+        texto += (
+            "📋 *Nenhum cadastrado* — os tickets "
+            "vão continuar chegando na conta "
+            "admin padrão.\n\n"
         )
 
     texto += "⬅️ Para cancelar, clique no botão abaixo."
@@ -2189,6 +2446,24 @@ async def botoes_admin(
     if acao == "admin_jogos_tv":
 
         await iniciar_jogos_tv(
+            query,
+            context,
+        )
+
+        return
+
+    if acao == "admin_chat_suporte":
+
+        await iniciar_chat_suporte(
+            query,
+            context,
+        )
+
+        return
+
+    if acao == "admin_grupo_suporte":
+
+        await iniciar_grupo_suporte(
             query,
             context,
         )
