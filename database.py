@@ -204,6 +204,18 @@ def criar_tabelas():
     except sqlite3.OperationalError:
         pass
 
+    # -----------------------------------------------------
+    # TÓPICOS DE SUPORTE (helpdesk em grupo com tópicos)
+    # -----------------------------------------------------
+
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS suporte_topicos (
+            usuario_id INTEGER PRIMARY KEY,
+            topico_id INTEGER NOT NULL,
+            criado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+
     conn.commit()
     conn.close()
 
@@ -560,6 +572,82 @@ def contar_compras_usuario(
         return int(resultado[0])
 
     return 0
+
+
+def salvar_topico_suporte(
+    usuario_id,
+    topico_id,
+):
+
+    conn = conectar()
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        INSERT INTO suporte_topicos
+        (
+            usuario_id,
+            topico_id
+        )
+        VALUES (?, ?)
+        ON CONFLICT(usuario_id)
+        DO UPDATE SET topico_id = excluded.topico_id
+    """, (
+        usuario_id,
+        topico_id,
+    ))
+
+    conn.commit()
+    conn.close()
+
+
+def obter_topico_suporte(
+    usuario_id,
+):
+
+    conn = conectar()
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        SELECT topico_id
+        FROM suporte_topicos
+        WHERE usuario_id = ?
+    """, (
+        usuario_id,
+    ))
+
+    resultado = cursor.fetchone()
+
+    conn.close()
+
+    if resultado:
+        return int(resultado[0])
+
+    return None
+
+
+def obter_usuario_por_topico(
+    topico_id,
+):
+
+    conn = conectar()
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        SELECT usuario_id
+        FROM suporte_topicos
+        WHERE topico_id = ?
+    """, (
+        topico_id,
+    ))
+
+    resultado = cursor.fetchone()
+
+    conn.close()
+
+    if resultado:
+        return int(resultado[0])
+
+    return None
 
 
 # =========================================================
