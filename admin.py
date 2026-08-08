@@ -28,6 +28,8 @@ from database import (
     obter_configuracao,
     remover_configuracao,
     definir_imagem_produto,
+    definir_duracao_produto,
+    obter_duracao_produto,
 )
 
 
@@ -412,6 +414,16 @@ async def admin_detalhes_produto(
     else:
         texto_categoria = "⚠️ Sem categoria"
 
+    duracao_atual = obter_duracao_produto(
+        produto_id
+    )
+
+    texto_duracao = (
+        f"{duracao_atual} dias"
+        if duracao_atual
+        else "⚠️ Não definida"
+    )
+
     texto = (
         "📦 *GERENCIAR PRODUTO*\n\n"
         "━━━━━━━━━━━━━━━━━━\n"
@@ -420,6 +432,7 @@ async def admin_detalhes_produto(
         f"📦 *Estoque:* {estoque}\n"
         f"🔐 *Contas disponíveis:* {estoque_real}\n"
         f"🗂️ *Categoria:* {texto_categoria}\n"
+        f"⏳ *Duração:* {texto_duracao}\n"
         "━━━━━━━━━━━━━━━━━━\n\n"
         f"📝 {descricao or 'Sem descrição'}"
     )
@@ -449,6 +462,15 @@ async def admin_detalhes_produto(
                 "💰 ALTERAR PREÇO",
                 callback_data=(
                     f"admin_preco_{produto_id}"
+                ),
+            )
+        ],
+
+        [
+            InlineKeyboardButton(
+                "⏳ DURAÇÃO (DIAS)",
+                callback_data=(
+                    f"admin_duracao_{produto_id}"
                 ),
             )
         ],
@@ -734,6 +756,84 @@ async def processar_admin_texto(
         await update.message.reply_text(
             "✅ *PREÇO ALTERADO!*\n\n"
             f"💰 Novo preço: R$ {preco:.2f}",
+            reply_markup=InlineKeyboardMarkup(
+                [
+                    [
+                        InlineKeyboardButton(
+                            "📦 GERENCIAR PRODUTO",
+                            callback_data=(
+                                f"admin_produto_{produto_id}"
+                            ),
+                        )
+                    ],
+                    [
+                        InlineKeyboardButton(
+                            "👑 PAINEL ADMIN",
+                            callback_data="admin_menu",
+                        )
+                    ],
+                ]
+            ),
+            parse_mode="Markdown",
+        )
+
+        return True
+
+    # =====================================================
+    # ALTERAR DURAÇÃO (DIAS)
+    # =====================================================
+
+    if acao == "alterar_duracao":
+
+        produto_id = context.user_data.get(
+            "admin_produto_id"
+        )
+
+        try:
+
+            dias = int(
+                texto.strip()
+            )
+
+        except ValueError:
+
+            await update.message.reply_text(
+                "❌ Digite só um número inteiro de "
+                "dias.\n\n"
+                "Exemplo: `30`",
+                parse_mode="Markdown",
+            )
+
+            return True
+
+        if dias <= 0:
+
+            await update.message.reply_text(
+                "❌ A duração precisa ser maior "
+                "que zero."
+            )
+
+            return True
+
+        sucesso = definir_duracao_produto(
+            produto_id,
+            dias,
+        )
+
+        limpar_estado(context)
+
+        if not sucesso:
+
+            await update.message.reply_text(
+                "❌ Não foi possível alterar a "
+                "duração."
+            )
+
+            return True
+
+        await update.message.reply_text(
+            "✅ *DURAÇÃO ATUALIZADA!*\n\n"
+            f"⏳ Nova duração: {dias} dias",
             reply_markup=InlineKeyboardMarkup(
                 [
                     [
@@ -1184,6 +1284,74 @@ async def iniciar_alterar_preco(
         "`5`\n"
         "`5,50`\n"
         "`10.00`",
+        reply_markup=InlineKeyboardMarkup(
+            [
+                [
+                    InlineKeyboardButton(
+                        "❌ CANCELAR",
+                        callback_data=(
+                            f"admin_produto_{produto_id}"
+                        ),
+                    )
+                ]
+            ]
+        ),
+        parse_mode="Markdown",
+    )
+
+
+# =========================================================
+# ALTERAR DURAÇÃO (DIAS)
+# =========================================================
+
+async def iniciar_alterar_duracao(
+    query,
+    context,
+    produto_id,
+):
+
+    if not await verificar_admin_query(query):
+
+        return
+
+    produto = buscar_produto(
+        produto_id
+    )
+
+    if not produto:
+
+        await query.answer(
+            "❌ Produto não encontrado.",
+            show_alert=True,
+        )
+
+        return
+
+    limpar_estado(context)
+
+    context.user_data[
+        "admin_acao"
+    ] = "alterar_duracao"
+
+    context.user_data[
+        "admin_produto_id"
+    ] = produto_id
+
+    duracao_atual = obter_duracao_produto(
+        produto_id
+    )
+
+    await query.edit_message_text(
+        "⏳ *DURAÇÃO DO PRODUTO*\n\n"
+        f"📦 Produto: {produto[1]}\n"
+        f"⏳ Duração atual: {duracao_atual} dias\n\n"
+        "Digite a nova duração em dias "
+        "(usada pra calcular o vencimento e "
+        "te avisar quando uma conta estiver "
+        "perto de vencer).\n\n"
+        "Exemplo:\n"
+        "`30`\n"
+        "`7`",
         reply_markup=InlineKeyboardMarkup(
             [
                 [
@@ -2760,6 +2928,41 @@ async def botoes_admin(
             return
 
         await iniciar_alterar_preco(
+            query,
+            context,
+            produto_id,
+        )
+
+        return
+
+    # =====================================================
+    # ALTERAR DURAÇÃO (DIAS)
+    # =====================================================
+
+    if acao.startswith(
+        "admin_duracao_"
+    ):
+
+        try:
+
+            produto_id = int(
+                acao.replace(
+                    "admin_duracao_",
+                    "",
+                    1,
+                )
+            )
+
+        except ValueError:
+
+            await query.answer(
+                "❌ Produto inválido.",
+                show_alert=True,
+            )
+
+            return
+
+        await iniciar_alterar_duracao(
             query,
             context,
             produto_id,
