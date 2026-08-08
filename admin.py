@@ -30,7 +30,70 @@ from database import (
     definir_imagem_produto,
     definir_duracao_produto,
     obter_duracao_produto,
+    listar_interessados_reposicao,
+    remover_avisos_reposicao,
 )
+
+
+# =========================================================
+# NOTIFICAR REPOSIÇÃO DE ESTOQUE
+# =========================================================
+
+async def notificar_reposicao_estoque(
+    context,
+    produto_id,
+    nome_produto,
+):
+
+    try:
+
+        interessados = listar_interessados_reposicao(
+            produto_id
+        )
+
+        if not interessados:
+            return
+
+        for usuario_id in interessados:
+
+            try:
+                await context.bot.send_message(
+                    chat_id=usuario_id,
+                    text=(
+                        "🔔 *DE VOLTA AO ESTOQUE!*\n\n"
+                        f"📦 *{nome_produto}* já está "
+                        "disponível novamente!"
+                    ),
+                    reply_markup=InlineKeyboardMarkup(
+                        [
+                            [
+                                InlineKeyboardButton(
+                                    "🛒 Comprar agora",
+                                    callback_data=(
+                                        f"produto_{produto_id}"
+                                    ),
+                                )
+                            ]
+                        ]
+                    ),
+                    parse_mode="Markdown",
+                )
+            except Exception as erro_envio:
+                print(
+                    "ERRO AO AVISAR REPOSIÇÃO "
+                    "(usuário):",
+                    repr(erro_envio),
+                )
+
+        remover_avisos_reposicao(
+            produto_id
+        )
+
+    except Exception as erro:
+        print(
+            "ERRO AO NOTIFICAR REPOSIÇÃO:",
+            repr(erro),
+        )
 
 
 # =========================================================
@@ -219,6 +282,20 @@ def menu_admin():
             InlineKeyboardButton(
                 "🗂️ GRUPO DE SUPORTE (TÓPICOS)",
                 callback_data="admin_grupo_suporte",
+            )
+        ],
+
+        [
+            InlineKeyboardButton(
+                "📉 ESTOQUE MÍNIMO",
+                callback_data="admin_estoque_minimo",
+            )
+        ],
+
+        [
+            InlineKeyboardButton(
+                "📊 RELATÓRIO DE VENDAS",
+                callback_data="admin_relatorio_vendas",
             )
         ],
 
@@ -665,6 +742,12 @@ async def processar_admin_texto(
         )
 
         nome = produto[1]
+
+        await notificar_reposicao_estoque(
+            context,
+            produto_id,
+            nome,
+        )
 
         limpar_estado(context)
 
@@ -1167,6 +1250,44 @@ async def processar_admin_texto(
             "não deu `/start` no bot, peça pra "
             "ela fazer isso agora — senão o "
             "envio vai falhar.",
+            reply_markup=InlineKeyboardMarkup(
+                [
+                    [
+                        InlineKeyboardButton(
+                            "👑 PAINEL ADMIN",
+                            callback_data="admin_menu",
+                        )
+                    ]
+                ]
+            ),
+            parse_mode="Markdown",
+        )
+
+        return True
+
+    if acao == "definir_estoque_minimo":
+
+        valor = texto.strip()
+
+        if not valor.isdigit() or int(valor) < 0:
+
+            await update.message.reply_text(
+                "❌ Digite um número inteiro "
+                "válido (0 ou maior)."
+            )
+
+            return True
+
+        definir_configuracao(
+            "estoque_minimo",
+            valor,
+        )
+
+        limpar_estado(context)
+
+        await update.message.reply_text(
+            "✅ *ESTOQUE MÍNIMO ATUALIZADO!*\n\n"
+            f"📉 Novo valor: {valor}",
             reply_markup=InlineKeyboardMarkup(
                 [
                     [
@@ -1776,6 +1897,54 @@ async def iniciar_imagem_catalogo(
         texto,
         reply_markup=InlineKeyboardMarkup(
             botoes
+        ),
+        parse_mode="Markdown",
+    )
+
+
+# =========================================================
+# ESTOQUE MÍNIMO (LIMITE DO ALERTA DE ESTOQUE BAIXO)
+# =========================================================
+
+async def iniciar_estoque_minimo(
+    query,
+    context,
+):
+
+    if not await verificar_admin_query(query):
+
+        return
+
+    limpar_estado(context)
+
+    context.user_data[
+        "admin_acao"
+    ] = "definir_estoque_minimo"
+
+    atual = (
+        obter_configuracao("estoque_minimo")
+        or "3"
+    )
+
+    await query.edit_message_text(
+        "📉 *ESTOQUE MÍNIMO*\n\n"
+        f"📋 *Valor atual:* {atual}\n\n"
+        "Digite o número mínimo de contas "
+        "que um produto pode ter antes de "
+        "você receber um aviso de estoque "
+        "baixo.\n\n"
+        "Exemplo:\n"
+        "`3`\n"
+        "`5`",
+        reply_markup=InlineKeyboardMarkup(
+            [
+                [
+                    InlineKeyboardButton(
+                        "❌ CANCELAR",
+                        callback_data="admin_menu",
+                    )
+                ]
+            ]
         ),
         parse_mode="Markdown",
     )
@@ -2679,6 +2848,15 @@ async def botoes_admin(
     if acao == "admin_grupo_suporte":
 
         await iniciar_grupo_suporte(
+            query,
+            context,
+        )
+
+        return
+
+    if acao == "admin_estoque_minimo":
+
+        await iniciar_estoque_minimo(
             query,
             context,
         )
