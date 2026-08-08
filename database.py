@@ -1773,6 +1773,37 @@ def retirar_login_disponivel(
         raise
 
 
+def listar_contas_usuario(
+    usuario_id,
+):
+
+    conn = conectar()
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        SELECT
+            l.id,
+            l.produto_id,
+            p.nome,
+            l.vendido_em,
+            p.duracao_dias
+        FROM logins l
+        INNER JOIN produtos p
+            ON p.id = l.produto_id
+        WHERE l.usuario_id = ?
+        AND l.status = 'vendido'
+        ORDER BY l.vendido_em DESC
+    """, (
+        usuario_id,
+    ))
+
+    resultados = cursor.fetchall()
+
+    conn.close()
+
+    return resultados
+
+
 def consultar_login(login_id):
 
     conn = conectar()
