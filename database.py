@@ -214,6 +214,28 @@ def criar_tabelas():
         pass
 
     # -----------------------------------------------------
+    # DURAÇÃO DO PRODUTO / AVISO DE VENCIMENTO
+    # -----------------------------------------------------
+
+    try:
+        cursor.execute("""
+            ALTER TABLE produtos
+            ADD COLUMN duracao_dias
+            INTEGER DEFAULT 30
+        """)
+    except sqlite3.OperationalError:
+        pass
+
+    try:
+        cursor.execute("""
+            ALTER TABLE logins
+            ADD COLUMN aviso_vencimento_enviado
+            INTEGER DEFAULT 0
+        """)
+    except sqlite3.OperationalError:
+        pass
+
+    # -----------------------------------------------------
     # TÓPICOS DE SUPORTE (helpdesk em grupo com tópicos)
     # -----------------------------------------------------
 
@@ -224,6 +246,27 @@ def criar_tabelas():
             criado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
     """)
+
+    # -----------------------------------------------------
+    # DURAÇÃO DO PRODUTO / ALERTA DE VENCIMENTO
+    # -----------------------------------------------------
+
+    try:
+        cursor.execute("""
+            ALTER TABLE produtos
+            ADD COLUMN duracao_dias INTEGER
+        """)
+    except sqlite3.OperationalError:
+        pass
+
+    try:
+        cursor.execute("""
+            ALTER TABLE logins
+            ADD COLUMN alerta_vencimento_enviado
+            INTEGER DEFAULT 0
+        """)
+    except sqlite3.OperationalError:
+        pass
 
     conn.commit()
     conn.close()
@@ -621,6 +664,240 @@ def marcar_lembrete_enviado(
         WHERE id = ?
     """, (
         usuario_id,
+    ))
+
+    conn.commit()
+    conn.close()
+
+
+def definir_duracao_produto(
+    produto_id,
+    dias,
+):
+
+    conn = conectar()
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        UPDATE produtos
+        SET duracao_dias = ?
+        WHERE id = ?
+    """, (
+        int(dias),
+        produto_id,
+    ))
+
+    alterado = cursor.rowcount > 0
+
+    conn.commit()
+    conn.close()
+
+    return alterado
+
+
+def obter_duracao_produto(
+    produto_id,
+):
+
+    conn = conectar()
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        SELECT duracao_dias
+        FROM produtos
+        WHERE id = ?
+    """, (
+        produto_id,
+    ))
+
+    resultado = cursor.fetchone()
+
+    conn.close()
+
+    if resultado and resultado[0] is not None:
+        return int(resultado[0])
+
+    return 30
+
+
+def listar_logins_vencendo():
+    """
+    Retorna contas vendidas cujo vencimento
+    (data da venda + duração do produto) cai
+    dentro das próximas 24 horas, e que ainda
+    não geraram aviso.
+    """
+
+    conn = conectar()
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        SELECT
+            l.id,
+            l.usuario_id,
+            u.nome,
+            u.username,
+            l.produto_id,
+            p.nome,
+            l.vendido_em,
+            p.duracao_dias
+        FROM logins l
+        INNER JOIN produtos p
+            ON p.id = l.produto_id
+        LEFT JOIN usuarios u
+            ON u.id = l.usuario_id
+        WHERE l.status = 'vendido'
+        AND l.aviso_vencimento_enviado = 0
+        AND l.vendido_em IS NOT NULL
+        AND datetime(
+            l.vendido_em,
+            '+' || p.duracao_dias || ' days'
+        ) <= datetime('now', '+24 hours')
+        AND datetime(
+            l.vendido_em,
+            '+' || p.duracao_dias || ' days'
+        ) > datetime('now')
+        ORDER BY datetime(
+            l.vendido_em,
+            '+' || p.duracao_dias || ' days'
+        )
+    """)
+
+    resultados = cursor.fetchall()
+
+    conn.close()
+
+    return resultados
+
+
+def marcar_aviso_vencimento_enviado(
+    login_id,
+):
+
+    conn = conectar()
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        UPDATE logins
+        SET aviso_vencimento_enviado = 1
+        WHERE id = ?
+    """, (
+        login_id,
+    ))
+
+    conn.commit()
+    conn.close()
+
+
+def definir_duracao_produto(
+    produto_id,
+    dias,
+):
+
+    conn = conectar()
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        UPDATE produtos
+        SET duracao_dias = ?
+        WHERE id = ?
+    """, (
+        int(dias),
+        produto_id,
+    ))
+
+    alterado = cursor.rowcount > 0
+
+    conn.commit()
+    conn.close()
+
+    return alterado
+
+
+def obter_duracao_produto(
+    produto_id,
+):
+
+    conn = conectar()
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        SELECT duracao_dias
+        FROM produtos
+        WHERE id = ?
+    """, (
+        produto_id,
+    ))
+
+    resultado = cursor.fetchone()
+
+    conn.close()
+
+    if resultado and resultado[0] is not None:
+        return int(resultado[0])
+
+    return None
+
+
+def listar_logins_vencendo():
+    """
+    Retorna as contas vendidas cujo vencimento
+    (data da venda + duração do produto) cai
+    dentro das próximas 24h, e que ainda não
+    geraram alerta.
+    """
+
+    conn = conectar()
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        SELECT
+            l.id,
+            l.usuario_id,
+            u.nome,
+            u.username,
+            l.produto_id,
+            p.nome,
+            l.vendido_em,
+            p.duracao_dias
+        FROM logins l
+        INNER JOIN produtos p
+            ON p.id = l.produto_id
+        LEFT JOIN usuarios u
+            ON u.id = l.usuario_id
+        WHERE l.status = 'vendido'
+        AND l.alerta_vencimento_enviado = 0
+        AND p.duracao_dias IS NOT NULL
+        AND date(
+            l.vendido_em,
+            '+' || p.duracao_dias || ' days'
+        ) <= date('now', '+1 day')
+        AND date(
+            l.vendido_em,
+            '+' || p.duracao_dias || ' days'
+        ) >= date('now')
+    """)
+
+    resultados = cursor.fetchall()
+
+    conn.close()
+
+    return resultados
+
+
+def marcar_aviso_vencimento_enviado(
+    login_id,
+):
+
+    conn = conectar()
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        UPDATE logins
+        SET alerta_vencimento_enviado = 1
+        WHERE id = ?
+    """, (
+        login_id,
     ))
 
     conn.commit()
