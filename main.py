@@ -61,6 +61,8 @@ from database import (
     obter_usuario_por_topico,
     usuario_ja_recebeu_lembrete,
     marcar_lembrete_enviado,
+    listar_logins_vencendo,
+    marcar_aviso_vencimento_enviado,
 )
 
 from menu import menu_principal
@@ -91,6 +93,8 @@ VALOR_MAXIMO = 499.00
 INTERVALO_VERIFICACAO = 5
 
 VERIFICADOR_TASK = "verificador_pagamentos_task"
+VERIFICADOR_VENCIMENTOS_TASK = "verificador_vencimentos_task"
+INTERVALO_VERIFICACAO_VENCIMENTOS = 60 * 60
 
 
 # =========================================================
@@ -1438,6 +1442,106 @@ async def verificar_pagamentos_automaticamente(
             )
 
 
+# =========================================================
+# AVISO DE VENCIMENTO (1 DIA ANTES) PRO ADMIN
+# =========================================================
+
+async def verificar_vencimentos_proximos(
+    bot,
+):
+
+    contas = listar_logins_vencendo()
+
+    if not contas:
+        return
+
+    print(
+        f"⏳ {len(contas)} conta(s) vencendo em "
+        "até 24h."
+    )
+
+    for conta in contas:
+
+        try:
+            (
+                login_id,
+                usuario_id,
+                nome_cliente,
+                username_cliente,
+                produto_id,
+                nome_produto,
+                vendido_em,
+                duracao_dias,
+            ) = conta
+
+            username_texto = (
+                f"@{username_cliente}"
+                if username_cliente
+                else "Não informado"
+            )
+
+            texto = (
+                "⏳ *CONTA VENCENDO EM ATÉ 24H*\n\n"
+                "━━━━━━━━━━━━━━━━━━\n"
+                f"📦 *Produto:* {nome_produto}\n"
+                f"👤 *Cliente:* {nome_cliente or 'Não informado'}\n"
+                f"🔗 *Username:* {username_texto}\n"
+                f"🆔 *ID do cliente:* `{usuario_id}`\n"
+                f"📅 *Vendido em:* {vendido_em}\n"
+                f"⏳ *Duração:* {duracao_dias} dias\n"
+                "━━━━━━━━━━━━━━━━━━\n\n"
+                "Considere entrar em contato pra "
+                "oferecer renovação."
+            )
+
+            await bot.send_message(
+                chat_id=ADMIN_ID,
+                text=texto,
+                parse_mode="Markdown",
+            )
+
+            marcar_aviso_vencimento_enviado(
+                login_id
+            )
+
+        except Exception as erro:
+            print(
+                "ERRO AO AVISAR VENCIMENTO:",
+                repr(erro),
+            )
+
+
+async def loop_verificador_vencimentos(
+    application: Application,
+):
+    print(
+        "⏳ Verificador de vencimentos iniciado."
+    )
+
+    while True:
+        try:
+            await verificar_vencimentos_proximos(
+                application.bot
+            )
+
+        except asyncio.CancelledError:
+            print(
+                "⏳ Verificador de vencimentos "
+                "encerrado."
+            )
+            raise
+
+        except Exception as erro:
+            print(
+                "ERRO NO LOOP DE VENCIMENTOS:",
+                repr(erro),
+            )
+
+        await asyncio.sleep(
+            INTERVALO_VERIFICACAO_VENCIMENTOS
+        )
+
+
 async def loop_verificador_pagamentos(
     application: Application,
 ):
@@ -1510,6 +1614,15 @@ async def iniciar_verificador(
         VERIFICADOR_TASK
     ] = task
 
+    task_vencimentos = asyncio.create_task(
+        loop_verificador_vencimentos(application),
+        name=VERIFICADOR_VENCIMENTOS_TASK,
+    )
+
+    application.bot_data[
+        VERIFICADOR_VENCIMENTOS_TASK
+    ] = task_vencimentos
+
 
 async def parar_verificador(
     application: Application,
@@ -1523,6 +1636,18 @@ async def parar_verificador(
 
         try:
             await task
+        except asyncio.CancelledError:
+            pass
+
+    task_vencimentos = application.bot_data.get(
+        VERIFICADOR_VENCIMENTOS_TASK
+    )
+
+    if task_vencimentos:
+        task_vencimentos.cancel()
+
+        try:
+            await task_vencimentos
         except asyncio.CancelledError:
             pass
 
@@ -3803,65 +3928,4 @@ def main():
     application.add_handler(
         InlineQueryHandler(
             pesquisa_inline
-        )
-    )
-
-    application.add_handler(
-        CallbackQueryHandler(
-            botoes
-        )
-    )
-
-    application.add_handler(
-        MessageHandler(
-            filters.ChatType.GROUPS
-            & (filters.TEXT | filters.PHOTO),
-            responder_suporte_topico,
-        )
-    )
-
-    application.add_handler(
-        MessageHandler(
-            filters.ChatType.PRIVATE
-            & filters.REPLY
-            & (filters.TEXT | filters.PHOTO),
-            responder_suporte_admin,
-        )
-    )
-
-    application.add_handler(
-        MessageHandler(
-            filters.PHOTO | filters.ANIMATION,
-            processar_midia_generico,
-        )
-    )
-
-    application.add_handler(
-        MessageHandler(
-            filters.TEXT & ~filters.COMMAND,
-            processar_mensagem_texto,
-        )
-    )
-
-    application.add_error_handler(
-        erro_global
-    )
-
-    print("🤖 PLAYER STORE iniciado!")
-    print("👑 Painel ADM: /admin")
-    print(
-        "💳 Verificador PIX: asyncio "
-        f"(intervalo de {INTERVALO_VERIFICACAO}s)"
-    )
-
-    application.run_polling(
-        drop_pending_updates=True
-    )
-
-
-# =========================================================
-# EXECUTAR
-# =========================================================
-
-if __name__ == "__main__":
-    main()
+    
