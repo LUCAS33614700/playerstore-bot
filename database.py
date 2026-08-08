@@ -268,6 +268,46 @@ def criar_tabelas():
     except sqlite3.OperationalError:
         pass
 
+    # -----------------------------------------------------
+    # ESTOQUE BAIXO
+    # -----------------------------------------------------
+
+    try:
+        cursor.execute("""
+            ALTER TABLE produtos
+            ADD COLUMN alerta_estoque_enviado
+            INTEGER DEFAULT 0
+        """)
+    except sqlite3.OperationalError:
+        pass
+
+    # -----------------------------------------------------
+    # DATA DO PEDIDO (para relatório de vendas)
+    # -----------------------------------------------------
+
+    try:
+        cursor.execute("""
+            ALTER TABLE pedidos
+            ADD COLUMN criado_em
+            TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        """)
+    except sqlite3.OperationalError:
+        pass
+
+    # -----------------------------------------------------
+    # AVISOS DE REPOSIÇÃO DE ESTOQUE
+    # -----------------------------------------------------
+
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS avisos_reposicao (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            usuario_id INTEGER NOT NULL,
+            produto_id INTEGER NOT NULL,
+            criado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(usuario_id, produto_id)
+        )
+    """)
+
     conn.commit()
     conn.close()
 
@@ -770,25 +810,6 @@ def listar_logins_vencendo():
     return resultados
 
 
-def marcar_aviso_vencimento_enviado(
-    login_id,
-):
-
-    conn = conectar()
-    cursor = conn.cursor()
-
-    cursor.execute("""
-        UPDATE logins
-        SET aviso_vencimento_enviado = 1
-        WHERE id = ?
-    """, (
-        login_id,
-    ))
-
-    conn.commit()
-    conn.close()
-
-
 def definir_duracao_produto(
     produto_id,
     dias,
@@ -898,6 +919,182 @@ def marcar_aviso_vencimento_enviado(
         WHERE id = ?
     """, (
         login_id,
+    ))
+
+    conn.commit()
+    conn.close()
+
+
+# =========================================================
+# ESTOQUE BAIXO
+# =========================================================
+
+def produto_ja_alertou_estoque_baixo(
+    produto_id,
+):
+
+    conn = conectar()
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        SELECT alerta_estoque_enviado
+        FROM produtos
+        WHERE id = ?
+    """, (
+        produto_id,
+    ))
+
+    resultado = cursor.fetchone()
+
+    conn.close()
+
+    if resultado:
+        return bool(resultado[0])
+
+    return False
+
+
+def marcar_alerta_estoque_enviado(
+    produto_id,
+):
+
+    conn = conectar()
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        UPDATE produtos
+        SET alerta_estoque_enviado = 1
+        WHERE id = ?
+    """, (
+        produto_id,
+    ))
+
+    conn.commit()
+    conn.close()
+
+
+def resetar_alerta_estoque(
+    produto_id,
+):
+
+    conn = conectar()
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        UPDATE produtos
+        SET alerta_estoque_enviado = 0
+        WHERE id = ?
+    """, (
+        produto_id,
+    ))
+
+    conn.commit()
+    conn.close()
+
+
+# =========================================================
+# RELATÓRIO DE VENDAS
+# =========================================================
+
+def relatorio_vendas_periodo(
+    horas=24,
+):
+
+    conn = conectar()
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        SELECT
+            COUNT(*),
+            COALESCE(SUM(valor), 0)
+        FROM pedidos
+        WHERE status = 'pago'
+        AND criado_em >= datetime(
+            'now',
+            ?
+        )
+    """, (
+        f"-{int(horas)} hours",
+    ))
+
+    resultado = cursor.fetchone()
+
+    conn.close()
+
+    if resultado:
+        return (
+            int(resultado[0]),
+            float(resultado[1]),
+        )
+
+    return 0, 0.0
+
+
+# =========================================================
+# AVISOS DE REPOSIÇÃO DE ESTOQUE
+# =========================================================
+
+def registrar_aviso_reposicao(
+    usuario_id,
+    produto_id,
+):
+
+    conn = conectar()
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        INSERT OR IGNORE INTO avisos_reposicao
+        (
+            usuario_id,
+            produto_id
+        )
+        VALUES (?, ?)
+    """, (
+        usuario_id,
+        produto_id,
+    ))
+
+    conn.commit()
+    conn.close()
+
+
+def listar_interessados_reposicao(
+    produto_id,
+):
+
+    conn = conectar()
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        SELECT usuario_id
+        FROM avisos_reposicao
+        WHERE produto_id = ?
+    """, (
+        produto_id,
+    ))
+
+    resultados = cursor.fetchall()
+
+    conn.close()
+
+    return [
+        int(linha[0])
+        for linha in resultados
+    ]
+
+
+def remover_avisos_reposicao(
+    produto_id,
+):
+
+    conn = conectar()
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        DELETE FROM avisos_reposicao
+        WHERE produto_id = ?
+    """, (
+        produto_id,
     ))
 
     conn.commit()
