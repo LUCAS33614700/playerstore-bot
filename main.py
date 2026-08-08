@@ -3928,4 +3928,66 @@ def main():
     application.add_handler(
         InlineQueryHandler(
             pesquisa_inline
-    
+        )
+    )
+
+    application.add_handler(
+        CallbackQueryHandler(
+            botoes
+        )
+    )
+
+    application.add_handler(
+        MessageHandler(
+            filters.ChatType.GROUPS
+            & (filters.TEXT | filters.PHOTO),
+            responder_suporte_topico,
+        )
+    )
+
+    application.add_handler(
+        MessageHandler(
+            filters.ChatType.PRIVATE
+            & filters.REPLY
+            & (filters.TEXT | filters.PHOTO),
+            responder_suporte_admin,
+        )
+    )
+
+    application.add_handler(
+        MessageHandler(
+            filters.PHOTO | filters.ANIMATION,
+            processar_midia_generico,
+        )
+    )
+
+    application.add_handler(
+        MessageHandler(
+            filters.TEXT & ~filters.COMMAND,
+            processar_mensagem_texto,
+        )
+    )
+
+    application.add_error_handler(
+        erro_global
+    )
+
+    print("🤖 PLAYER STORE iniciado!")
+    print("👑 Painel ADM: /admin")
+    print(
+        "💳 Verificador PIX: asyncio "
+        f"(intervalo de {INTERVALO_VERIFICACAO}s)"
+    )
+
+    application.run_polling(
+        drop_pending_updates=True
+    )
+
+
+# =========================================================
+# EXECUTAR
+# =========================================================
+
+if __name__ == "__main__":
+    main()
+
