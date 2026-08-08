@@ -3,6 +3,7 @@ import re
 import base64
 import binascii
 import io
+from datetime import datetime, timedelta
 
 from telegram import (
     Update,
@@ -63,6 +64,8 @@ from database import (
     marcar_lembrete_enviado,
     listar_logins_vencendo,
     marcar_aviso_vencimento_enviado,
+    listar_contas_usuario,
+    consultar_login,
 )
 
 from menu import menu_principal
@@ -2380,6 +2383,226 @@ async def responder_suporte_admin(
 
 
 # =========================================================
+# RENOVAR CONTA (HISTÓRICO + RENOVAÇÃO)
+# =========================================================
+
+DIAS_GRACA_RENOVACAO = 7
+
+
+async def mostrar_historico_renovacao(
+    query,
+    context,
+    usuario_id,
+):
+
+    contas = listar_contas_usuario(
+        usuario_id
+    )
+
+    if not contas:
+        await editar_ou_substituir(
+            query,
+            context,
+            "♻️ *RENOVAR CONTA*\n\n"
+            "Você ainda não tem contas compradas.\n\n"
+            "Aparecem aqui as contas que você "
+            "comprou, desde a compra até um "
+            "pouco depois do vencimento.",
+            reply_markup=InlineKeyboardMarkup(
+                [
+                    [
+                        InlineKeyboardButton(
+                            "🛒 Ver catálogo",
+                            callback_data="catalogo",
+                        )
+                    ],
+                    [
+                        InlineKeyboardButton(
+                            "↩️ Voltar ao menu",
+                            callback_data="voltar_menu",
+                        )
+                    ],
+                ]
+            ),
+            parse_mode="Markdown",
+        )
+        return
+
+    agora = datetime.now()
+
+    texto = (
+        "♻️ *RENOVAR CONTA*\n\n"
+        "Histórico das suas contas:\n\n"
+    )
+
+    botoes = []
+
+    for conta in contas[:20]:
+
+        (
+            login_id,
+            produto_id,
+            nome_produto,
+            vendido_em,
+            duracao_dias,
+        ) = conta
+
+        try:
+            data_compra = datetime.strptime(
+                vendido_em[:19],
+                "%Y-%m-%d %H:%M:%S",
+            )
+        except (ValueError, TypeError):
+            data_compra = None
+
+        data_texto = (
+            data_compra.strftime("%d/%m/%Y")
+            if data_compra
+            else "Data desconhecida"
+        )
+
+        if not duracao_dias or not data_compra:
+
+            texto += (
+                f"📦 *{nome_produto}*\n"
+                f"🗓️ Comprado em: {data_texto}\n"
+                "ℹ️ Duração não cadastrada\n\n"
+            )
+            continue
+
+        vencimento = data_compra + timedelta(
+            days=duracao_dias
+        )
+
+        dias_restantes = (
+            vencimento - agora
+        ).days
+
+        if dias_restantes >= 0:
+
+            status = (
+                f"✅ Ativo (vence em "
+                f"{dias_restantes}d)"
+            )
+
+            elegivel = True
+
+        else:
+
+            dias_vencido = abs(
+                dias_restantes
+            )
+
+            if dias_vencido <= DIAS_GRACA_RENOVACAO:
+
+                status = (
+                    f"🔴 Vencido há "
+                    f"{dias_vencido}d"
+                )
+
+                elegivel = True
+
+            else:
+
+                status = (
+                    f"⚫ Vencido há "
+                    f"{dias_vencido}d"
+                )
+
+                elegivel = False
+
+        texto += (
+            f"📦 *{nome_produto}*\n"
+            f"🗓️ Comprado em: {data_texto}\n"
+            f"{status}\n\n"
+        )
+
+        if elegivel:
+
+            botoes.append(
+                [
+                    InlineKeyboardButton(
+                        f"🔁 Renovar {nome_produto[:30]}",
+                        callback_data=(
+                            f"renovar_login_{login_id}"
+                        ),
+                    )
+                ]
+            )
+
+    if len(contas) > 20:
+        texto += (
+            "_Mostrando as 20 compras mais "
+            "recentes._\n\n"
+        )
+
+    botoes.append(
+        [
+            InlineKeyboardButton(
+                "↩️ Voltar ao menu",
+                callback_data="voltar_menu",
+            )
+        ]
+    )
+
+    await editar_ou_substituir(
+        query,
+        context,
+        texto,
+        reply_markup=InlineKeyboardMarkup(
+            botoes
+        ),
+        parse_mode="Markdown",
+    )
+
+
+async def renovar_conta(
+    query,
+    context,
+    usuario_id,
+    login_id,
+):
+
+    login = consultar_login(
+        login_id
+    )
+
+    if not login:
+        await query.answer(
+            "❌ Conta não encontrada.",
+            show_alert=True,
+        )
+        return
+
+    (
+        _,
+        produto_id,
+        _dados,
+        _status,
+        login_usuario_id,
+        _pedido_id,
+        _vendido_em,
+    ) = login
+
+    if int(login_usuario_id or 0) != int(
+        usuario_id
+    ):
+        await query.answer(
+            "❌ Essa conta não é sua.",
+            show_alert=True,
+        )
+        return
+
+    await comprar_produto(
+        query,
+        context,
+        produto_id,
+        usuario_id,
+        1,
+    )
+
+
+# =========================================================
 # JOGOS NA TV
 # =========================================================
 
@@ -3823,6 +4046,43 @@ async def botoes(
         await pedir_suporte(
             query,
             context,
+        )
+        return
+
+    # =====================================================
+    # RENOVAR CONTA
+    # =====================================================
+
+    if acao == "renovar_conta":
+        await mostrar_historico_renovacao(
+            query,
+            context,
+            usuario_id,
+        )
+        return
+
+    if acao.startswith("renovar_login_"):
+
+        try:
+            login_id = int(
+                acao.replace(
+                    "renovar_login_",
+                    "",
+                    1,
+                )
+            )
+        except ValueError:
+            await query.answer(
+                "❌ Conta inválida.",
+                show_alert=True,
+            )
+            return
+
+        await renovar_conta(
+            query,
+            context,
+            usuario_id,
+            login_id,
         )
         return
 
