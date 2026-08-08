@@ -66,6 +66,13 @@ from database import (
     marcar_aviso_vencimento_enviado,
     listar_contas_usuario,
     consultar_login,
+    produto_ja_alertou_estoque_baixo,
+    marcar_alerta_estoque_enviado,
+    resetar_alerta_estoque,
+    relatorio_vendas_periodo,
+    registrar_aviso_reposicao,
+    listar_interessados_reposicao,
+    remover_avisos_reposicao,
 )
 
 from menu import menu_principal
@@ -97,6 +104,7 @@ INTERVALO_VERIFICACAO = 5
 
 VERIFICADOR_TASK = "verificador_pagamentos_task"
 VERIFICADOR_VENCIMENTOS_TASK = "verificador_vencimentos_task"
+RELATORIO_VENDAS_TASK = "relatorio_vendas_task"
 INTERVALO_VERIFICACAO_VENCIMENTOS = 60 * 60
 
 
@@ -125,6 +133,75 @@ def eh_admin_principal(user_id):
         return int(user_id) == int(ADMIN_ID)
     except (ValueError, TypeError):
         return False
+
+
+# =========================================================
+# ESTOQUE BAIXO
+# =========================================================
+
+ESTOQUE_MINIMO_PADRAO = 3
+
+
+async def verificar_estoque_baixo(
+    bot,
+    produto_id,
+    nome_produto,
+):
+
+    try:
+
+        limite = obter_configuracao(
+            "estoque_minimo"
+        )
+
+        limite = (
+            int(limite)
+            if limite
+            else ESTOQUE_MINIMO_PADRAO
+        )
+
+        estoque_atual = consultar_estoque_logins(
+            produto_id
+        )
+
+        if estoque_atual > limite:
+            resetar_alerta_estoque(
+                produto_id
+            )
+            return
+
+        if produto_ja_alertou_estoque_baixo(
+            produto_id
+        ):
+            return
+
+        marcar_alerta_estoque_enviado(
+            produto_id
+        )
+
+        destino = (
+            obter_configuracao("suporte_chat_id")
+            or ADMIN_ID
+        )
+
+        await bot.send_message(
+            chat_id=destino,
+            text=(
+                "📉 *ESTOQUE BAIXO*\n\n"
+                f"📦 *Produto:* {nome_produto}\n"
+                f"🔐 *Restam:* {estoque_atual} "
+                "conta(s)\n\n"
+                "Considere repor o estoque em "
+                "breve."
+            ),
+            parse_mode="Markdown",
+        )
+
+    except Exception as erro:
+        print(
+            "ERRO NO ALERTA DE ESTOQUE BAIXO:",
+            repr(erro),
+        )
 
 
 # =========================================================
@@ -583,6 +660,12 @@ async def comprar_produto(
         return
 
     novo_saldo = float(consultar_saldo(usuario_id) or 0)
+
+    await verificar_estoque_baixo(
+        context.bot,
+        produto_id,
+        nome,
+    )
 
     texto_contas = ""
 
@@ -1545,6 +1628,81 @@ async def loop_verificador_vencimentos(
         )
 
 
+INTERVALO_RELATORIO_VENDAS = 24 * 60 * 60
+
+
+async def enviar_relatorio_vendas(
+    bot,
+):
+
+    try:
+
+        qtd_dia, total_dia = relatorio_vendas_periodo(24)
+        qtd_semana, total_semana = relatorio_vendas_periodo(
+            24 * 7
+        )
+
+        destino = (
+            obter_configuracao("suporte_chat_id")
+            or ADMIN_ID
+        )
+
+        await bot.send_message(
+            chat_id=destino,
+            text=(
+                "📊 *RELATÓRIO DE VENDAS*\n\n"
+                "━━━━━━━━━━━━━━━━━━\n"
+                "🗓️ *Últimas 24h*\n"
+                f"🛍️ Vendas: {qtd_dia}\n"
+                f"💰 Faturamento: R$ {total_dia:.2f}\n"
+                "━━━━━━━━━━━━━━━━━━\n"
+                "🗓️ *Últimos 7 dias*\n"
+                f"🛍️ Vendas: {qtd_semana}\n"
+                f"💰 Faturamento: R$ {total_semana:.2f}\n"
+                "━━━━━━━━━━━━━━━━━━"
+            ),
+            parse_mode="Markdown",
+        )
+
+    except Exception as erro:
+        print(
+            "ERRO NO RELATÓRIO DE VENDAS:",
+            repr(erro),
+        )
+
+
+async def loop_relatorio_vendas(
+    application: Application,
+):
+    print(
+        "📊 Relatório automático de vendas iniciado."
+    )
+
+    while True:
+
+        await asyncio.sleep(
+            INTERVALO_RELATORIO_VENDAS
+        )
+
+        try:
+            await enviar_relatorio_vendas(
+                application.bot
+            )
+
+        except asyncio.CancelledError:
+            print(
+                "📊 Relatório automático de "
+                "vendas encerrado."
+            )
+            raise
+
+        except Exception as erro:
+            print(
+                "ERRO NO LOOP DE RELATÓRIO:",
+                repr(erro),
+            )
+
+
 async def loop_verificador_pagamentos(
     application: Application,
 ):
@@ -1626,6 +1784,15 @@ async def iniciar_verificador(
         VERIFICADOR_VENCIMENTOS_TASK
     ] = task_vencimentos
 
+    task_relatorio = asyncio.create_task(
+        loop_relatorio_vendas(application),
+        name=RELATORIO_VENDAS_TASK,
+    )
+
+    application.bot_data[
+        RELATORIO_VENDAS_TASK
+    ] = task_relatorio
+
 
 async def parar_verificador(
     application: Application,
@@ -1651,6 +1818,18 @@ async def parar_verificador(
 
         try:
             await task_vencimentos
+        except asyncio.CancelledError:
+            pass
+
+    task_relatorio = application.bot_data.get(
+        RELATORIO_VENDAS_TASK
+    )
+
+    if task_relatorio:
+        task_relatorio.cancel()
+
+        try:
+            await task_relatorio
         except asyncio.CancelledError:
             pass
 
@@ -3112,6 +3291,12 @@ async def finalizar_compra_carrinho(
             (nome, contas_produto)
         )
 
+        await verificar_estoque_baixo(
+            context.bot,
+            produto_id,
+            nome,
+        )
+
     if falhou:
 
         adicionar_saldo(
@@ -3280,6 +3465,30 @@ async def botoes(
             "novamente em breve.",
             show_alert=True,
         )
+        return
+
+    # =====================================================
+    # RELATÓRIO DE VENDAS SOB DEMANDA (INTERCEPTADO ANTES
+    # DE DELEGAR PRO PAINEL ADMIN, POIS A FUNÇÃO VIVE AQUI)
+    # =====================================================
+
+    if acao == "admin_relatorio_vendas":
+
+        if not eh_admin_principal(usuario_id):
+            await query.answer(
+                "❌ Acesso negado.",
+                show_alert=True,
+            )
+            return
+
+        await query.answer(
+            "📊 Gerando relatório..."
+        )
+
+        await enviar_relatorio_vendas(
+            context.bot
+        )
+
         return
 
     # =====================================================
@@ -3640,9 +3849,44 @@ async def botoes(
             conn.close()
 
         if estoque_real <= 0:
-            await query.answer(
-                "📦 Produto sem contas disponíveis.",
-                show_alert=True,
+
+            await editar_ou_substituir(
+                query,
+                context,
+                "📦 *ESGOTADO NO MOMENTO*\n\n"
+                "━━━━━━━━━━━━━━━━━━\n"
+                f"🛍️ *Serviço:* {nome}\n"
+                "━━━━━━━━━━━━━━━━━━\n\n"
+                f"📝 {descricao or 'Sem descrição'}\n\n"
+                "Esse produto está sem contas "
+                "disponíveis agora. Quer que eu "
+                "te avise assim que voltar ao "
+                "estoque?",
+                reply_markup=InlineKeyboardMarkup(
+                    [
+                        [
+                            InlineKeyboardButton(
+                                "🔔 Avisar quando disponível",
+                                callback_data=(
+                                    f"avisar_reposicao_{produto_id}"
+                                ),
+                            )
+                        ],
+                        [
+                            InlineKeyboardButton(
+                                "⬅️ VOLTAR À CATEGORIA",
+                                callback_data="catalogo",
+                            )
+                        ],
+                        [
+                            InlineKeyboardButton(
+                                "↩️ VOLTAR AO MENU",
+                                callback_data="voltar_menu",
+                            )
+                        ],
+                    ]
+                ),
+                parse_mode="Markdown",
             )
             return
 
@@ -3711,6 +3955,49 @@ async def botoes(
                 botoes_compra
             ),
             parse_mode="Markdown",
+        )
+        return
+
+    # =====================================================
+    # AVISAR QUANDO REPOSTO
+    # =====================================================
+
+    if acao.startswith("avisar_reposicao_"):
+
+        try:
+            produto_id = int(
+                acao.replace(
+                    "avisar_reposicao_",
+                    "",
+                    1,
+                )
+            )
+        except ValueError:
+            await query.answer(
+                "❌ Produto inválido.",
+                show_alert=True,
+            )
+            return
+
+        produto = buscar_produto(produto_id)
+
+        if not produto:
+            await query.answer(
+                "❌ Produto não encontrado.",
+                show_alert=True,
+            )
+            return
+
+        registrar_aviso_reposicao(
+            usuario_id,
+            produto_id,
+        )
+
+        await query.answer(
+            "🔔 Combinado! Você vai receber uma "
+            "mensagem assim que esse produto "
+            "voltar ao estoque.",
+            show_alert=True,
         )
         return
 
