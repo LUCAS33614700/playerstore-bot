@@ -666,6 +666,23 @@ def contar_compras_usuario(
     return 0
 
 
+def listar_todos_usuarios():
+
+    conn = conectar()
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        SELECT id
+        FROM usuarios
+    """)
+
+    resultados = cursor.fetchall()
+
+    conn.close()
+
+    return [int(linha[0]) for linha in resultados]
+
+
 def usuario_ja_recebeu_lembrete(
     usuario_id,
 ):
@@ -708,106 +725,6 @@ def marcar_lembrete_enviado(
 
     conn.commit()
     conn.close()
-
-
-def definir_duracao_produto(
-    produto_id,
-    dias,
-):
-
-    conn = conectar()
-    cursor = conn.cursor()
-
-    cursor.execute("""
-        UPDATE produtos
-        SET duracao_dias = ?
-        WHERE id = ?
-    """, (
-        int(dias),
-        produto_id,
-    ))
-
-    alterado = cursor.rowcount > 0
-
-    conn.commit()
-    conn.close()
-
-    return alterado
-
-
-def obter_duracao_produto(
-    produto_id,
-):
-
-    conn = conectar()
-    cursor = conn.cursor()
-
-    cursor.execute("""
-        SELECT duracao_dias
-        FROM produtos
-        WHERE id = ?
-    """, (
-        produto_id,
-    ))
-
-    resultado = cursor.fetchone()
-
-    conn.close()
-
-    if resultado and resultado[0] is not None:
-        return int(resultado[0])
-
-    return 30
-
-
-def listar_logins_vencendo():
-    """
-    Retorna contas vendidas cujo vencimento
-    (data da venda + duração do produto) cai
-    dentro das próximas 24 horas, e que ainda
-    não geraram aviso.
-    """
-
-    conn = conectar()
-    cursor = conn.cursor()
-
-    cursor.execute("""
-        SELECT
-            l.id,
-            l.usuario_id,
-            u.nome,
-            u.username,
-            l.produto_id,
-            p.nome,
-            l.vendido_em,
-            p.duracao_dias
-        FROM logins l
-        INNER JOIN produtos p
-            ON p.id = l.produto_id
-        LEFT JOIN usuarios u
-            ON u.id = l.usuario_id
-        WHERE l.status = 'vendido'
-        AND l.aviso_vencimento_enviado = 0
-        AND l.vendido_em IS NOT NULL
-        AND datetime(
-            l.vendido_em,
-            '+' || p.duracao_dias || ' days'
-        ) <= datetime('now', '+24 hours')
-        AND datetime(
-            l.vendido_em,
-            '+' || p.duracao_dias || ' days'
-        ) > datetime('now')
-        ORDER BY datetime(
-            l.vendido_em,
-            '+' || p.duracao_dias || ' days'
-        )
-    """)
-
-    resultados = cursor.fetchall()
-
-    conn.close()
-
-    return resultados
 
 
 def definir_duracao_produto(
