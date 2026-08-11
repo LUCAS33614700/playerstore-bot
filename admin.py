@@ -32,6 +32,7 @@ from database import (
     obter_duracao_produto,
     listar_interessados_reposicao,
     remover_avisos_reposicao,
+    listar_todos_usuarios,
 )
 
 
@@ -92,6 +93,69 @@ async def notificar_reposicao_estoque(
     except Exception as erro:
         print(
             "ERRO AO NOTIFICAR REPOSIÇÃO:",
+            repr(erro),
+        )
+
+
+# =========================================================
+# ANUNCIAR ABASTECIMENTO NO GRUPO PÚBLICO
+# =========================================================
+
+async def anunciar_abastecimento_grupo(
+    context,
+    produto_id,
+    nome_produto,
+    preco,
+    quantidade_adicionada,
+):
+
+    try:
+
+        grupo_id = obter_configuracao(
+            "grupo_anuncios_id"
+        )
+
+        if not grupo_id:
+            return
+
+        try:
+            grupo_id_int = int(grupo_id)
+        except ValueError:
+            return
+
+        me = await context.bot.get_me()
+
+        await context.bot.send_message(
+            chat_id=grupo_id_int,
+            text=(
+                "🎉 *ESTOQUE ABASTECIDO!* "
+                f"{nome_produto}\n\n"
+                f"➕ Entraram "
+                f"{quantidade_adicionada} "
+                "login(s)\n"
+                f"💰 A partir de R$ {preco:.2f}\n"
+                "⚡ Corra antes que acabe — "
+                "boas compras! 🛒🔥"
+            ),
+            reply_markup=InlineKeyboardMarkup(
+                [
+                    [
+                        InlineKeyboardButton(
+                            "🤖 Acessar o bot",
+                            url=(
+                                f"https://t.me/"
+                                f"{me.username}"
+                            ),
+                        )
+                    ]
+                ]
+            ),
+            parse_mode="Markdown",
+        )
+
+    except Exception as erro:
+        print(
+            "ERRO AO ANUNCIAR ABASTECIMENTO:",
             repr(erro),
         )
 
@@ -296,6 +360,27 @@ def menu_admin():
             InlineKeyboardButton(
                 "📊 RELATÓRIO DE VENDAS",
                 callback_data="admin_relatorio_vendas",
+            )
+        ],
+
+        [
+            InlineKeyboardButton(
+                "📣 GRUPO DE ANÚNCIOS (ESTOQUE)",
+                callback_data="admin_grupo_anuncios",
+            )
+        ],
+
+        [
+            InlineKeyboardButton(
+                "🔒 GRUPO OBRIGATÓRIO",
+                callback_data="admin_grupo_obrigatorio",
+            )
+        ],
+
+        [
+            InlineKeyboardButton(
+                "📢 ENVIAR NOVIDADE",
+                callback_data="admin_broadcast",
             )
         ],
 
@@ -742,6 +827,17 @@ async def processar_admin_texto(
         )
 
         nome = produto[1]
+        preco = produto[3]
+
+        if estoque == 1:
+
+            await anunciar_abastecimento_grupo(
+                context,
+                produto_id,
+                nome,
+                float(preco),
+                1,
+            )
 
         await notificar_reposicao_estoque(
             context,
@@ -1296,6 +1392,190 @@ async def processar_admin_texto(
                             callback_data="admin_menu",
                         )
                     ]
+                ]
+            ),
+            parse_mode="Markdown",
+        )
+
+        return True
+
+    if acao == "definir_grupo_anuncios":
+
+        valor = texto.strip()
+
+        if not (
+            valor.lstrip("-").isdigit()
+            and valor.startswith("-")
+        ):
+
+            await update.message.reply_text(
+                "❌ Isso não parece um ID de grupo "
+                "válido.\n\n"
+                "IDs de grupo/canal começam com "
+                "`-` (ex: `-1001234567890`). Use "
+                "`/grupoid` dentro do grupo pra "
+                "pegar o ID certo.",
+                parse_mode="Markdown",
+            )
+
+            return True
+
+        definir_configuracao(
+            "grupo_anuncios_id",
+            valor,
+        )
+
+        limpar_estado(context)
+
+        await update.message.reply_text(
+            "✅ *GRUPO DE ANÚNCIOS ATUALIZADO!*\n\n"
+            f"📋 Novo ID: `{valor}`\n\n"
+            "⚠️ Confirme que o bot é *admin* "
+            "desse grupo/canal, senão os posts "
+            "vão falhar.",
+            reply_markup=InlineKeyboardMarkup(
+                [
+                    [
+                        InlineKeyboardButton(
+                            "👑 PAINEL ADMIN",
+                            callback_data="admin_menu",
+                        )
+                    ]
+                ]
+            ),
+            parse_mode="Markdown",
+        )
+
+        return True
+
+    if acao == "definir_grupo_obrigatorio_id":
+
+        valor = texto.strip()
+
+        if not (
+            valor.lstrip("-").isdigit()
+            and valor.startswith("-")
+        ):
+
+            await update.message.reply_text(
+                "❌ Isso não parece um ID de grupo "
+                "válido.\n\n"
+                "IDs de grupo/canal começam com "
+                "`-` (ex: `-1001234567890`). Use "
+                "`/grupoid` dentro do grupo pra "
+                "pegar o ID certo.",
+                parse_mode="Markdown",
+            )
+
+            return True
+
+        definir_configuracao(
+            "grupo_obrigatorio_id",
+            valor,
+        )
+
+        context.user_data[
+            "admin_acao"
+        ] = "definir_grupo_obrigatorio_link"
+
+        await update.message.reply_text(
+            "✅ ID salvo!\n\n"
+            "Agora cole o *link de convite* "
+            "desse grupo/canal (o que aparece "
+            "quando você toca em \"Adicionar "
+            "membro\" → \"Compartilhar link\").\n\n"
+            "Exemplo:\n"
+            "`https://t.me/+AbCdEfGhIjK`",
+            parse_mode="Markdown",
+        )
+
+        return True
+
+    if acao == "definir_grupo_obrigatorio_link":
+
+        valor = texto.strip()
+
+        if not (
+            valor.startswith("https://t.me/")
+            or valor.startswith("http://t.me/")
+        ):
+
+            await update.message.reply_text(
+                "❌ Isso não parece um link do "
+                "Telegram. Precisa começar com "
+                "`https://t.me/`.",
+                parse_mode="Markdown",
+            )
+
+            return True
+
+        definir_configuracao(
+            "grupo_obrigatorio_link",
+            valor,
+        )
+
+        limpar_estado(context)
+
+        await update.message.reply_text(
+            "✅ *GRUPO OBRIGATÓRIO CONFIGURADO!*\n\n"
+            "A partir de agora, o bot vai "
+            "exigir que o cliente entre nesse "
+            "grupo antes de usar o `/start`.\n\n"
+            "⚠️ Confirme que o bot é *admin* "
+            "desse grupo/canal (precisa disso "
+            "pra checar quem é membro).",
+            reply_markup=InlineKeyboardMarkup(
+                [
+                    [
+                        InlineKeyboardButton(
+                            "👑 PAINEL ADMIN",
+                            callback_data="admin_menu",
+                        )
+                    ]
+                ]
+            ),
+            parse_mode="Markdown",
+        )
+
+        return True
+
+    if acao == "definir_broadcast_texto":
+
+        context.user_data[
+            "broadcast_texto"
+        ] = texto
+
+        limpar_estado(context)
+
+        total_usuarios = len(
+            listar_todos_usuarios()
+        )
+
+        await update.message.reply_text(
+            "👀 *PRÉVIA DA MENSAGEM*\n\n"
+            "━━━━━━━━━━━━━━━━━━\n"
+            "📢 *NOVIDADE!*\n\n"
+            f"{texto}\n"
+            "━━━━━━━━━━━━━━━━━━\n\n"
+            f"Vai ser enviada pra "
+            f"{total_usuarios} cliente(s). "
+            "Confirmar?",
+            reply_markup=InlineKeyboardMarkup(
+                [
+                    [
+                        InlineKeyboardButton(
+                            "✅ CONFIRMAR ENVIO",
+                            callback_data=(
+                                "admin_confirmar_broadcast"
+                            ),
+                        )
+                    ],
+                    [
+                        InlineKeyboardButton(
+                            "❌ CANCELAR",
+                            callback_data="admin_menu",
+                        )
+                    ],
                 ]
             ),
             parse_mode="Markdown",
@@ -1941,6 +2221,228 @@ async def iniciar_estoque_minimo(
                 [
                     InlineKeyboardButton(
                         "❌ CANCELAR",
+                        callback_data="admin_menu",
+                    )
+                ]
+            ]
+        ),
+        parse_mode="Markdown",
+    )
+
+
+# =========================================================
+# GRUPO DE ANÚNCIOS (ESTOQUE)
+# =========================================================
+
+async def iniciar_grupo_anuncios(
+    query,
+    context,
+):
+
+    if not await verificar_admin_query(query):
+
+        return
+
+    limpar_estado(context)
+
+    context.user_data[
+        "admin_acao"
+    ] = "definir_grupo_anuncios"
+
+    atual = obter_configuracao(
+        "grupo_anuncios_id"
+    )
+
+    texto = (
+        "📣 *GRUPO DE ANÚNCIOS (ESTOQUE)*\n\n"
+        "Esse grupo/canal recebe um post "
+        "automático toda vez que um produto "
+        "reabastece do zero, ou esgota.\n\n"
+        "*Como configurar:*\n\n"
+        "1️⃣ Crie um grupo ou canal\n"
+        "2️⃣ Adicione este bot como *admin*\n"
+        "3️⃣ Dentro dele, mande `/grupoid`\n"
+        "4️⃣ Cole o ID aqui\n\n"
+    )
+
+    if atual:
+        texto += f"📋 *ID atual:* `{atual}`\n\n"
+
+    texto += "⬅️ Para cancelar, clique no botão abaixo."
+
+    await query.edit_message_text(
+        texto,
+        reply_markup=InlineKeyboardMarkup(
+            [
+                [
+                    InlineKeyboardButton(
+                        "❌ CANCELAR",
+                        callback_data="admin_menu",
+                    )
+                ]
+            ]
+        ),
+        parse_mode="Markdown",
+    )
+
+
+# =========================================================
+# GRUPO OBRIGATÓRIO (ENTRAR ANTES DE USAR O BOT)
+# =========================================================
+
+async def iniciar_grupo_obrigatorio(
+    query,
+    context,
+):
+
+    if not await verificar_admin_query(query):
+
+        return
+
+    limpar_estado(context)
+
+    context.user_data[
+        "admin_acao"
+    ] = "definir_grupo_obrigatorio_id"
+
+    atual_id = obter_configuracao(
+        "grupo_obrigatorio_id"
+    )
+
+    texto = (
+        "🔒 *GRUPO OBRIGATÓRIO*\n\n"
+        "Se configurado, o cliente só consegue "
+        "usar o bot depois de entrar nesse "
+        "grupo/canal.\n\n"
+        "*Como configurar:*\n\n"
+        "1️⃣ Mande `/grupoid` dentro do grupo\n"
+        "2️⃣ Cole o ID aqui\n"
+        "3️⃣ Depois eu vou pedir o link de "
+        "convite\n\n"
+    )
+
+    if atual_id:
+        texto += f"📋 *ID atual:* `{atual_id}`\n\n"
+    else:
+        texto += (
+            "📋 *Nenhum cadastrado* — hoje "
+            "qualquer pessoa pode usar o bot "
+            "livremente.\n\n"
+        )
+
+    texto += "⬅️ Para cancelar, clique no botão abaixo."
+
+    await query.edit_message_text(
+        texto,
+        reply_markup=InlineKeyboardMarkup(
+            [
+                [
+                    InlineKeyboardButton(
+                        "❌ CANCELAR",
+                        callback_data="admin_menu",
+                    )
+                ]
+            ]
+        ),
+        parse_mode="Markdown",
+    )
+
+
+# =========================================================
+# BROADCAST (ENVIAR NOVIDADE PRA TODOS)
+# =========================================================
+
+async def iniciar_broadcast(
+    query,
+    context,
+):
+
+    if not await verificar_admin_query(query):
+
+        return
+
+    limpar_estado(context)
+
+    context.user_data[
+        "admin_acao"
+    ] = "definir_broadcast_texto"
+
+    await query.edit_message_text(
+        "📢 *ENVIAR NOVIDADE*\n\n"
+        "Digite a mensagem que vai ser "
+        "enviada pra *todos* os clientes "
+        "cadastrados no bot.\n\n"
+        "Você vai poder revisar antes de "
+        "confirmar o envio.",
+        reply_markup=InlineKeyboardMarkup(
+            [
+                [
+                    InlineKeyboardButton(
+                        "❌ CANCELAR",
+                        callback_data="admin_menu",
+                    )
+                ]
+            ]
+        ),
+        parse_mode="Markdown",
+    )
+
+
+async def executar_broadcast(
+    query,
+    context,
+):
+
+    if not await verificar_admin_query(query):
+
+        return
+
+    texto = context.user_data.get(
+        "broadcast_texto"
+    )
+
+    if not texto:
+
+        await query.answer(
+            "❌ Nenhuma mensagem pendente.",
+            show_alert=True,
+        )
+        return
+
+    usuarios = listar_todos_usuarios()
+
+    sucesso = 0
+    falha = 0
+
+    for usuario_id in usuarios:
+
+        try:
+            await context.bot.send_message(
+                chat_id=usuario_id,
+                text=(
+                    "📢 *NOVIDADE!*\n\n"
+                    f"{texto}"
+                ),
+                parse_mode="Markdown",
+            )
+            sucesso += 1
+
+        except Exception:
+            falha += 1
+
+    context.user_data.pop(
+        "broadcast_texto", None
+    )
+
+    await query.edit_message_text(
+        "✅ *BROADCAST ENVIADO!*\n\n"
+        f"📨 Entregue: {sucesso}\n"
+        f"❌ Falhou: {falha}",
+        reply_markup=InlineKeyboardMarkup(
+            [
+                [
+                    InlineKeyboardButton(
+                        "👑 PAINEL ADMIN",
                         callback_data="admin_menu",
                     )
                 ]
@@ -2848,6 +3350,42 @@ async def botoes_admin(
     if acao == "admin_grupo_suporte":
 
         await iniciar_grupo_suporte(
+            query,
+            context,
+        )
+
+        return
+
+    if acao == "admin_grupo_anuncios":
+
+        await iniciar_grupo_anuncios(
+            query,
+            context,
+        )
+
+        return
+
+    if acao == "admin_grupo_obrigatorio":
+
+        await iniciar_grupo_obrigatorio(
+            query,
+            context,
+        )
+
+        return
+
+    if acao == "admin_broadcast":
+
+        await iniciar_broadcast(
+            query,
+            context,
+        )
+
+        return
+
+    if acao == "admin_confirmar_broadcast":
+
+        await executar_broadcast(
             query,
             context,
         )
