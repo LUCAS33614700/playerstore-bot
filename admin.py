@@ -829,15 +829,13 @@ async def processar_admin_texto(
         nome = produto[1]
         preco = produto[3]
 
-        if estoque == 1:
-
-            await anunciar_abastecimento_grupo(
-                context,
-                produto_id,
-                nome,
-                float(preco),
-                1,
-            )
+        await anunciar_abastecimento_grupo(
+            context,
+            produto_id,
+            nome,
+            float(preco),
+            1,
+        )
 
         await notificar_reposicao_estoque(
             context,
