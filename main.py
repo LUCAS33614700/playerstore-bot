@@ -136,6 +136,128 @@ def eh_admin_principal(user_id):
 
 
 # =========================================================
+# GRUPO OBRIGATÓRIO (ENTRAR ANTES DE USAR O BOT)
+# =========================================================
+
+async def verificar_membro_grupo(
+    bot,
+    grupo_id,
+    user_id,
+):
+    try:
+        membro = await bot.get_chat_member(
+            chat_id=int(grupo_id),
+            user_id=user_id,
+        )
+
+        return membro.status in (
+            "member",
+            "administrator",
+            "creator",
+        )
+
+    except Exception as erro:
+        print(
+            "ERRO AO VERIFICAR MEMBRO DO GRUPO "
+            "(permitindo acesso por segurança):",
+            repr(erro),
+        )
+        # Falha ao verificar (ex: bot sem
+        # permissão, grupo errado) — libera o
+        # acesso pra não travar todo mundo por
+        # causa de uma configuração ruim.
+        return True
+
+
+async def mostrar_tela_entrar_grupo(
+    update_or_query,
+    link,
+    e_callback=False,
+):
+    texto = (
+        "🔒 *ENTRE NO NOSSO GRUPO PRIMEIRO*\n\n"
+        "Pra usar o bot, você precisa entrar "
+        "no nosso grupo/canal oficial.\n\n"
+        "1️⃣ Toque em \"Entrar no grupo\"\n"
+        "2️⃣ Depois volte aqui e toque em "
+        "\"✅ Já entrei\""
+    )
+
+    botoes = InlineKeyboardMarkup(
+        [
+            [
+                InlineKeyboardButton(
+                    "👥 Entrar no grupo",
+                    url=link,
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    "✅ Já entrei",
+                    callback_data="checkjoin",
+                )
+            ],
+        ]
+    )
+
+    if e_callback:
+        await update_or_query.answer()
+        try:
+            await update_or_query.edit_message_text(
+                texto,
+                reply_markup=botoes,
+                parse_mode="Markdown",
+            )
+        except Exception:
+            pass
+    else:
+        await update_or_query.message.reply_text(
+            texto,
+            reply_markup=botoes,
+            parse_mode="Markdown",
+        )
+
+
+async def bloqueado_por_grupo_obrigatorio(
+    bot,
+    user_id,
+):
+    """
+    Retorna o link do grupo se o usuário
+    precisa entrar e ainda não entrou.
+    Retorna None se está liberado.
+    """
+
+    if eh_admin_principal(user_id):
+        return None
+
+    grupo_id = obter_configuracao(
+        "grupo_obrigatorio_id"
+    )
+
+    if not grupo_id:
+        return None
+
+    link = obter_configuracao(
+        "grupo_obrigatorio_link"
+    )
+
+    if not link:
+        return None
+
+    membro = await verificar_membro_grupo(
+        bot,
+        grupo_id,
+        user_id,
+    )
+
+    if membro:
+        return None
+
+    return link
+
+
+# =========================================================
 # ESTOQUE BAIXO
 # =========================================================
 
@@ -179,6 +301,12 @@ async def verificar_estoque_baixo(
             produto_id
         )
 
+        if estoque_atual <= 0:
+            await anunciar_esgotado_grupo(
+                bot,
+                nome_produto,
+            )
+
         destino = (
             obter_configuracao("suporte_chat_id")
             or ADMIN_ID
@@ -200,6 +328,55 @@ async def verificar_estoque_baixo(
     except Exception as erro:
         print(
             "ERRO NO ALERTA DE ESTOQUE BAIXO:",
+            repr(erro),
+        )
+
+
+async def anunciar_esgotado_grupo(
+    bot,
+    nome_produto,
+):
+    try:
+
+        grupo_id = obter_configuracao(
+            "grupo_anuncios_id"
+        )
+
+        if not grupo_id:
+            return
+
+        try:
+            grupo_id_int = int(grupo_id)
+        except ValueError:
+            return
+
+        me = await bot.get_me()
+
+        await bot.send_message(
+            chat_id=grupo_id_int,
+            text=(
+                "❌ *Estoque esgotado!* "
+                f"{nome_produto}"
+            ),
+            reply_markup=InlineKeyboardMarkup(
+                [
+                    [
+                        InlineKeyboardButton(
+                            "🤖 Acessar o bot",
+                            url=(
+                                f"https://t.me/"
+                                f"{me.username}"
+                            ),
+                        )
+                    ]
+                ]
+            ),
+            parse_mode="Markdown",
+        )
+
+    except Exception as erro:
+        print(
+            "ERRO AO ANUNCIAR ESGOTAMENTO:",
             repr(erro),
         )
 
@@ -352,6 +529,19 @@ async def start(
                 TEXTO_MANUTENCAO,
                 parse_mode="Markdown",
             )
+        return
+
+    link_pendente = await bloqueado_por_grupo_obrigatorio(
+        context.bot,
+        usuario.id,
+    )
+
+    if link_pendente:
+        await mostrar_tela_entrar_grupo(
+            update,
+            link_pendente,
+            e_callback=False,
+        )
         return
 
     criar_usuario(
@@ -3466,6 +3656,66 @@ async def botoes(
             show_alert=True,
         )
         return
+
+    # =====================================================
+    # PORTÃO DO GRUPO OBRIGATÓRIO
+    # =====================================================
+
+    if acao == "checkjoin":
+
+        link_pendente = (
+            await bloqueado_por_grupo_obrigatorio(
+                context.bot,
+                usuario_id,
+            )
+        )
+
+        if link_pendente:
+            await query.answer(
+                "❌ Ainda não encontrei você "
+                "no grupo. Entra lá e tenta "
+                "de novo.",
+                show_alert=True,
+            )
+            return
+
+        await query.answer(
+            "✅ Confirmado!",
+        )
+
+        usuario = query.from_user
+
+        criar_usuario(
+            usuario.id,
+            usuario.first_name or "",
+            usuario.username or "",
+        )
+
+        await enviar_menu_principal(
+            query.message.chat_id,
+            context,
+            "✅ *Tudo certo!*\n\n"
+            "🛒 *PLAYER STORE*\n\n"
+            "Escolha uma opção abaixo:",
+        )
+        return
+
+    if not acao.startswith("admin_"):
+
+        link_pendente = (
+            await bloqueado_por_grupo_obrigatorio(
+                context.bot,
+                usuario_id,
+            )
+        )
+
+        if link_pendente:
+            await mostrar_tela_entrar_grupo(
+                query,
+                link_pendente,
+                e_callback=True,
+            )
+            return
 
     # =====================================================
     # RELATÓRIO DE VENDAS SOB DEMANDA (INTERCEPTADO ANTES
