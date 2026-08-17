@@ -40,6 +40,14 @@ from database import (
     listar_grupos_obrigatorios,
     remover_grupo_obrigatorio,
     registrar_mensagem_grupo_anuncios,
+    definir_valor_encomenda,
+    obter_encomenda,
+    marcar_encomenda_entregue,
+    consultar_usuario,
+    consultar_saldo,
+    adicionar_saldo,
+    definir_limite_credito,
+    obter_limite_credito,
 )
 
 
@@ -386,6 +394,13 @@ def menu_admin():
             InlineKeyboardButton(
                 "🔒 GRUPO OBRIGATÓRIO",
                 callback_data="admin_grupo_obrigatorio",
+            )
+        ],
+
+        [
+            InlineKeyboardButton(
+                "👤 GERENCIAR CLIENTE",
+                callback_data="admin_gerenciar_cliente",
             )
         ],
 
@@ -1670,6 +1685,304 @@ async def processar_admin_texto(
 
         return True
 
+    if acao == "buscar_cliente_id":
+
+        valor = texto.strip()
+
+        if not valor.lstrip("-").isdigit():
+
+            await update.message.reply_text(
+                "❌ Isso não parece um ID válido. "
+                "Envie só os números."
+            )
+
+            return True
+
+        cliente_id = int(valor)
+
+        limpar_estado(context)
+
+        await mostrar_ficha_cliente(
+            update.message,
+            cliente_id,
+            e_mensagem=True,
+        )
+
+        return True
+
+    if acao == "definir_limite_cliente":
+
+        valor_texto = texto.strip().replace(
+            ",", "."
+        )
+
+        try:
+            limite = float(valor_texto)
+        except ValueError:
+            await update.message.reply_text(
+                "❌ Digite apenas um valor válido. "
+                "Exemplo: `50` ou `0` para remover.",
+                parse_mode="Markdown",
+            )
+            return True
+
+        if limite < 0:
+            await update.message.reply_text(
+                "❌ O limite não pode ser negativo."
+            )
+            return True
+
+        cliente_id = context.user_data.get(
+            "cliente_id"
+        )
+
+        definir_limite_credito(
+            cliente_id,
+            limite,
+        )
+
+        limpar_estado(context)
+
+        if limite > 0:
+            await update.message.reply_text(
+                "✅ *Limite de crédito definido!*\n\n"
+                f"🆔 *Cliente:* `{cliente_id}`\n"
+                f"💳 *Novo limite:* R$ {limite:.2f}",
+                parse_mode="Markdown",
+            )
+
+            try:
+                await context.bot.send_message(
+                    chat_id=cliente_id,
+                    text=(
+                        "💳 *VOCÊ GANHOU CRÉDITO!*\n\n"
+                        "Agora você pode comprar mesmo "
+                        f"sem saldo, até R$ {limite:.2f} "
+                        "a mais."
+                    ),
+                    parse_mode="Markdown",
+                )
+            except Exception as erro:
+                print(
+                    "ERRO AO AVISAR LIMITE DE "
+                    "CRÉDITO:",
+                    repr(erro),
+                )
+        else:
+            await update.message.reply_text(
+                "✅ Limite de crédito removido "
+                f"do cliente `{cliente_id}`.",
+                parse_mode="Markdown",
+            )
+
+        return True
+
+    if acao == "add_saldo_cliente":
+
+        valor_texto = texto.strip().replace(
+            ",", "."
+        )
+
+        try:
+            valor = float(valor_texto)
+        except ValueError:
+            await update.message.reply_text(
+                "❌ Digite apenas um valor válido. "
+                "Exemplo: `29,90`",
+                parse_mode="Markdown",
+            )
+            return True
+
+        if valor <= 0:
+            await update.message.reply_text(
+                "❌ O valor precisa ser maior "
+                "que zero."
+            )
+            return True
+
+        cliente_id = context.user_data.get(
+            "cliente_id"
+        )
+
+        adicionar_saldo(
+            cliente_id,
+            valor,
+        )
+
+        novo_saldo = consultar_saldo(cliente_id)
+
+        limpar_estado(context)
+
+        await update.message.reply_text(
+            "✅ *Saldo adicionado!*\n\n"
+            f"🆔 *Cliente:* `{cliente_id}`\n"
+            f"➕ *Valor creditado:* R$ {valor:.2f}\n"
+            f"💵 *Saldo atual:* "
+            f"R$ {float(novo_saldo or 0):.2f}",
+            parse_mode="Markdown",
+        )
+
+        try:
+            await context.bot.send_message(
+                chat_id=cliente_id,
+                text=(
+                    "💵 *VOCÊ RECEBEU SALDO!*\n\n"
+                    f"➕ *Valor:* R$ {valor:.2f}\n\n"
+                    "Já está disponível pra usar "
+                    "no bot."
+                ),
+                parse_mode="Markdown",
+            )
+        except Exception as erro:
+            print(
+                "ERRO AO AVISAR SALDO ADICIONADO:",
+                repr(erro),
+            )
+
+        return True
+
+    if acao == "definir_valor_encomenda":
+
+        valor_texto = texto.strip().replace(
+            ",", "."
+        )
+
+        try:
+            valor = float(valor_texto)
+        except ValueError:
+            await update.message.reply_text(
+                "❌ Digite apenas um valor válido. "
+                "Exemplo: `29,90`",
+                parse_mode="Markdown",
+            )
+            return True
+
+        if valor <= 0:
+            await update.message.reply_text(
+                "❌ O valor precisa ser maior "
+                "que zero."
+            )
+            return True
+
+        encomenda_id = context.user_data.get(
+            "encomenda_id"
+        )
+
+        encomenda = obter_encomenda(encomenda_id)
+
+        if not encomenda:
+            limpar_estado(context)
+            await update.message.reply_text(
+                "❌ Encomenda não encontrada."
+            )
+            return True
+
+        definir_valor_encomenda(
+            encomenda_id,
+            valor,
+        )
+
+        cliente_id = encomenda[1]
+        descricao = encomenda[2]
+
+        limpar_estado(context)
+
+        await update.message.reply_text(
+            "✅ *Valor definido!*\n\n"
+            f"📋 *Pedido:* {descricao}\n"
+            f"💰 *Valor:* R$ {valor:.2f}\n\n"
+            "O cliente já foi avisado.",
+            parse_mode="Markdown",
+        )
+
+        try:
+            await context.bot.send_message(
+                chat_id=cliente_id,
+                text=(
+                    "💰 *SUA ENCOMENDA TEM VALOR!*\n\n"
+                    "━━━━━━━━━━━━━━━━━━\n"
+                    f"📋 *Pedido:* {descricao}\n"
+                    f"💰 *Valor:* R$ {valor:.2f}\n"
+                    "━━━━━━━━━━━━━━━━━━\n\n"
+                    "Toque abaixo pra pagar com o "
+                    "seu saldo. Se não tiver saldo "
+                    "suficiente, o bot te oferece "
+                    "a opção de completar."
+                ),
+                reply_markup=InlineKeyboardMarkup(
+                    [
+                        [
+                            InlineKeyboardButton(
+                                "💳 Pagar agora",
+                                callback_data=(
+                                    "encomenda_pagar_"
+                                    f"{encomenda_id}"
+                                ),
+                            )
+                        ]
+                    ]
+                ),
+                parse_mode="Markdown",
+            )
+        except Exception as erro:
+            print(
+                "ERRO AO AVISAR VALOR "
+                "(ENCOMENDA):",
+                repr(erro),
+            )
+
+        return True
+
+    if acao == "entregar_encomenda":
+
+        encomenda_id = context.user_data.get(
+            "encomenda_id"
+        )
+
+        encomenda = obter_encomenda(encomenda_id)
+
+        if not encomenda or encomenda[4] != "pago":
+            limpar_estado(context)
+            await update.message.reply_text(
+                "❌ Essa encomenda não está mais "
+                "disponível pra entrega."
+            )
+            return True
+
+        cliente_id = encomenda[1]
+        descricao = encomenda[2]
+
+        try:
+            await context.bot.send_message(
+                chat_id=cliente_id,
+                text=(
+                    "📦 *SUA ENCOMENDA CHEGOU!*\n\n"
+                    f"📋 *Pedido:* {descricao}\n\n"
+                    "━━━━━━━━━━━━━━━━━━\n"
+                    f"{texto}\n"
+                    "━━━━━━━━━━━━━━━━━━\n\n"
+                    "Boas compras! 🎉"
+                ),
+                parse_mode="Markdown",
+            )
+        except Exception as erro:
+            await update.message.reply_text(
+                "❌ Não consegui entregar pro "
+                f"cliente: {erro}"
+            )
+            return True
+
+        marcar_encomenda_entregue(encomenda_id)
+
+        limpar_estado(context)
+
+        await update.message.reply_text(
+            "✅ Entregue! Encomenda marcada como "
+            "concluída."
+        )
+
+        return True
+
     if acao == "definir_broadcast_texto":
 
         context.user_data[
@@ -2419,6 +2732,189 @@ async def iniciar_grupo_anuncios(
 # =========================================================
 # GRUPO OBRIGATÓRIO (ENTRAR ANTES DE USAR O BOT)
 # =========================================================
+
+async def iniciar_gerenciar_cliente(
+    query,
+    context,
+):
+
+    if not await verificar_admin_query(query):
+
+        return
+
+    limpar_estado(context)
+
+    context.user_data[
+        "admin_acao"
+    ] = "buscar_cliente_id"
+
+    await query.edit_message_text(
+        "👤 *GERENCIAR CLIENTE*\n\n"
+        "Envie o *ID numérico* do cliente.\n\n"
+        "💡 Você acha o ID dele em qualquer "
+        "aviso de venda, encomenda ou "
+        "vencimento que o bot te manda "
+        "(campo `ID do cliente`).",
+        reply_markup=InlineKeyboardMarkup(
+            [
+                [
+                    InlineKeyboardButton(
+                        "❌ CANCELAR",
+                        callback_data="admin_menu",
+                    )
+                ]
+            ]
+        ),
+        parse_mode="Markdown",
+    )
+
+
+async def mostrar_ficha_cliente(
+    destino,
+    cliente_id,
+    e_mensagem=False,
+):
+
+    usuario = consultar_usuario(cliente_id)
+
+    if not usuario:
+        texto_erro = (
+            "❌ Cliente não encontrado. Ele "
+            "precisa ter usado o `/start` do "
+            "bot pelo menos uma vez."
+        )
+        if e_mensagem:
+            await destino.reply_text(
+                texto_erro,
+                parse_mode="Markdown",
+            )
+        else:
+            await destino.edit_message_text(
+                texto_erro,
+                parse_mode="Markdown",
+            )
+        return
+
+    _id, nome, username, saldo = usuario
+    limite = obter_limite_credito(cliente_id)
+
+    username_texto = (
+        f"@{username}" if username else "Não informado"
+    )
+
+    texto = (
+        "👤 *FICHA DO CLIENTE*\n\n"
+        "━━━━━━━━━━━━━━━━━━\n"
+        f"🆔 *ID:* `{cliente_id}`\n"
+        f"📛 *Nome:* {nome or 'Não informado'}\n"
+        f"🔗 *Username:* {username_texto}\n"
+        f"💵 *Saldo:* R$ {float(saldo or 0):.2f}\n"
+        f"💳 *Limite de crédito:* R$ {limite:.2f}\n"
+        "━━━━━━━━━━━━━━━━━━"
+    )
+
+    botoes = InlineKeyboardMarkup(
+        [
+            [
+                InlineKeyboardButton(
+                    "💳 Definir limite de crédito",
+                    callback_data=(
+                        "admin_definir_limite_"
+                        f"{cliente_id}"
+                    ),
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    "➕ Adicionar saldo (reembolso)",
+                    callback_data=(
+                        "admin_add_saldo_cliente_"
+                        f"{cliente_id}"
+                    ),
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    "👑 PAINEL ADMIN",
+                    callback_data="admin_menu",
+                )
+            ],
+        ]
+    )
+
+    if e_mensagem:
+        await destino.reply_text(
+            texto,
+            reply_markup=botoes,
+            parse_mode="Markdown",
+        )
+    else:
+        await destino.edit_message_text(
+            texto,
+            reply_markup=botoes,
+            parse_mode="Markdown",
+        )
+
+
+async def iniciar_definir_limite_cliente(
+    query,
+    context,
+    cliente_id,
+):
+
+    if not await verificar_admin_query(query):
+
+        return
+
+    limpar_estado(context)
+
+    context.user_data[
+        "admin_acao"
+    ] = "definir_limite_cliente"
+    context.user_data["cliente_id"] = cliente_id
+
+    limite_atual = obter_limite_credito(cliente_id)
+
+    await query.answer()
+
+    await query.message.reply_text(
+        "💳 *DEFINIR LIMITE DE CRÉDITO*\n\n"
+        f"📋 *Limite atual:* R$ {limite_atual:.2f}\n\n"
+        "Digite o novo limite (o cliente poderá "
+        "comprar mesmo sem saldo, até esse "
+        "valor a mais no negativo).\n\n"
+        "Envie `0` para remover o limite.",
+        parse_mode="Markdown",
+    )
+
+
+async def iniciar_add_saldo_cliente(
+    query,
+    context,
+    cliente_id,
+):
+
+    if not await verificar_admin_query(query):
+
+        return
+
+    limpar_estado(context)
+
+    context.user_data[
+        "admin_acao"
+    ] = "add_saldo_cliente"
+    context.user_data["cliente_id"] = cliente_id
+
+    await query.answer()
+
+    await query.message.reply_text(
+        "➕ *ADICIONAR SALDO*\n\n"
+        "Digite o valor a creditar na conta "
+        "desse cliente (ex: reembolso por "
+        "problema numa conta vendida).",
+        parse_mode="Markdown",
+    )
+
 
 async def iniciar_grupo_obrigatorio(
     query,
@@ -3616,6 +4112,53 @@ async def botoes_admin(
             query,
             context,
             registro_id,
+        )
+
+        return
+
+    if acao == "admin_gerenciar_cliente":
+
+        await iniciar_gerenciar_cliente(
+            query,
+            context,
+        )
+
+        return
+
+    if acao.startswith("admin_definir_limite_"):
+
+        if not await verificar_admin_query(query):
+            return
+
+        cliente_id = acao.replace(
+            "admin_definir_limite_",
+            "",
+            1,
+        )
+
+        await iniciar_definir_limite_cliente(
+            query,
+            context,
+            cliente_id,
+        )
+
+        return
+
+    if acao.startswith("admin_add_saldo_cliente_"):
+
+        if not await verificar_admin_query(query):
+            return
+
+        cliente_id = acao.replace(
+            "admin_add_saldo_cliente_",
+            "",
+            1,
+        )
+
+        await iniciar_add_saldo_cliente(
+            query,
+            context,
+            cliente_id,
         )
 
         return
