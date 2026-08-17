@@ -4728,6 +4728,39 @@ async def botoes(
         return
 
     # =====================================================
+    # OUTROS BOTS
+    # =====================================================
+
+    if acao == "outros_bots":
+        await editar_ou_substituir(
+            query,
+            context,
+            "🤖 *OUTROS BOTS*\n\n"
+            "Confira nossos outros bots:",
+            reply_markup=InlineKeyboardMarkup(
+                [
+                    [
+                        InlineKeyboardButton(
+                            "🔑 Bot de Códigos",
+                            url=(
+                                "https://t.me/"
+                                "PlayerStoreCodigosBot"
+                            ),
+                        )
+                    ],
+                    [
+                        InlineKeyboardButton(
+                            "⬅️ Voltar",
+                            callback_data="voltar_menu",
+                        )
+                    ],
+                ]
+            ),
+            parse_mode="Markdown",
+        )
+        return
+
+    # =====================================================
     # DESCONHECIDO
     # =====================================================
 
