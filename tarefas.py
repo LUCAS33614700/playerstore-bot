@@ -1,0 +1,642 @@
+import asyncio
+
+from telegram import (
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
+    BotCommand,
+)
+
+from telegram.ext import (
+    Application,
+    ContextTypes,
+)
+
+from config import ADMIN_ID
+
+from database import (
+    listar_pagamentos_pendentes,
+    consultar_saldo,
+    atualizar_status_pagamento,
+    processar_pagamento_pago,
+    listar_logins_vencendo,
+    marcar_aviso_vencimento_enviado,
+    listar_logins_vencidos,
+    marcar_vencimento_final_notificado,
+    listar_mensagens_grupo_para_apagar,
+    marcar_mensagem_grupo_apagada,
+    relatorio_vendas_periodo,
+    obter_configuracao,
+)
+
+from pushinpay import consultar_pix
+from menu import menu_principal
+from log import log_info, log_erro
+
+
+# =========================================================
+# TAREFAS EM SEGUNDO PLANO (VERIFICADORES / RELATÓRIOS)
+# =========================================================
+# Esse módulo reúne tudo que roda sozinho, em loop, sem
+# interação direta do usuário: checar pagamentos PIX
+# pendentes, avisar sobre contas vencendo, apagar mensagens
+# antigas do grupo de anúncios e mandar o relatório de
+# vendas. Antes vivia dentro do main.py — foi separado pra
+# deixar o arquivo principal menor e mais fácil de navegar.
+
+INTERVALO_VERIFICACAO = 5
+
+VERIFICADOR_TASK = "verificador_pagamentos_task"
+VERIFICADOR_VENCIMENTOS_TASK = "verificador_vencimentos_task"
+RELATORIO_VENDAS_TASK = "relatorio_vendas_task"
+INTERVALO_VERIFICACAO_VENCIMENTOS = 60 * 60
+
+
+# =========================================================
+# VERIFICAÇÃO AUTOMÁTICA
+# =========================================================
+# IMPORTANTE:
+# Não usamos JobQueue.
+# Isso evita crash quando o pacote job-queue não está instalado
+# no Railway. O verificador roda em uma task asyncio própria.
+
+async def verificar_pagamentos_automaticamente(
+    context: ContextTypes.DEFAULT_TYPE,
+):
+    pagamentos = listar_pagamentos_pendentes()
+
+    if not pagamentos:
+        return
+
+    log_info(
+        f"🔎 Verificando {len(pagamentos)} pagamento(s)..."
+    )
+
+    for pagamento in pagamentos:
+        try:
+            (
+                pagamento_id,
+                usuario_id,
+                valor,
+                transacao_id,
+                status_banco,
+                criado_em,
+            ) = pagamento
+
+            transacao = await asyncio.to_thread(
+                consultar_pix,
+                transacao_id,
+            )
+
+            status = str(
+                transacao.get("status", "")
+            ).lower()
+
+            log_info(
+                f"PIX {transacao_id}: {status}"
+            )
+
+            if status == "paid":
+                resultado = processar_pagamento_pago(
+                    transacao_id
+                )
+
+                if not resultado:
+                    continue
+
+                novo_saldo = consultar_saldo(
+                    usuario_id
+                )
+
+                try:
+                    await context.bot.send_message(
+                        chat_id=usuario_id,
+                        text=(
+                            "✅ *PAGAMENTO APROVADO!*\n\n"
+                            "━━━━━━━━━━━━━━━━━━\n"
+                            f"💰 Valor: R$ {float(valor):.2f}\n"
+                            f"🆔 ID: `{transacao_id}`\n"
+                            "━━━━━━━━━━━━━━━━━━\n\n"
+                            f"💳 *Novo saldo:* R$ {float(novo_saldo):.2f}\n\n"
+                            "🎉 Seu saldo foi liberado automaticamente!"
+                        ),
+                        reply_markup=menu_principal(),
+                        parse_mode="Markdown",
+                    )
+                except Exception as erro_envio:
+                    log_erro(
+                        "ERRO AO ENVIAR CONFIRMAÇÃO:",
+                        repr(erro_envio),
+                    )
+
+                continue
+
+            if status in (
+                "canceled",
+                "cancelled",
+                "expired",
+            ):
+                atualizado = atualizar_status_pagamento(
+                    transacao_id,
+                    "cancelado",
+                )
+
+                if atualizado:
+                    try:
+                        await context.bot.send_message(
+                            chat_id=usuario_id,
+                            text=(
+                                "❌ *PAGAMENTO ENCERRADO*\n\n"
+                                f"💰 Valor: R$ {float(valor):.2f}\n\n"
+                                "A cobrança PIX foi cancelada ou expirou.\n\n"
+                                "💳 Nenhum saldo foi adicionado."
+                            ),
+                            reply_markup=menu_principal(),
+                            parse_mode="Markdown",
+                        )
+                    except Exception as erro_envio:
+                        log_erro(
+                            "ERRO AO ENVIAR CANCELAMENTO:",
+                            repr(erro_envio),
+                        )
+
+        except Exception as erro:
+            try:
+                pix_id = pagamento[3]
+            except Exception:
+                pix_id = "desconhecido"
+
+            log_erro(
+                f"ERRO NA VERIFICAÇÃO DO PIX {pix_id}:",
+                repr(erro),
+            )
+
+
+# =========================================================
+# AVISO DE VENCIMENTO (1 DIA ANTES) PRO ADMIN
+# =========================================================
+
+async def verificar_vencimentos_proximos(
+    bot,
+):
+
+    contas = listar_logins_vencendo()
+
+    if not contas:
+        return
+
+    log_info(
+        f"⏳ {len(contas)} conta(s) vencendo em "
+        "até 24h."
+    )
+
+    for conta in contas:
+
+        try:
+            (
+                login_id,
+                usuario_id,
+                nome_cliente,
+                username_cliente,
+                produto_id,
+                nome_produto,
+                vendido_em,
+                duracao_dias,
+            ) = conta
+
+            username_texto = (
+                f"@{username_cliente}"
+                if username_cliente
+                else "Não informado"
+            )
+
+            texto = (
+                "⏳ *CONTA VENCENDO EM ATÉ 24H*\n\n"
+                "━━━━━━━━━━━━━━━━━━\n"
+                f"📦 *Produto:* {nome_produto}\n"
+                f"👤 *Cliente:* {nome_cliente or 'Não informado'}\n"
+                f"🔗 *Username:* {username_texto}\n"
+                f"🆔 *ID do cliente:* `{usuario_id}`\n"
+                f"📅 *Vendido em:* {vendido_em}\n"
+                f"⏳ *Duração:* {duracao_dias} dias\n"
+                "━━━━━━━━━━━━━━━━━━\n\n"
+                "Considere entrar em contato pra "
+                "oferecer renovação."
+            )
+
+            await bot.send_message(
+                chat_id=ADMIN_ID,
+                text=texto,
+                parse_mode="Markdown",
+            )
+
+            marcar_aviso_vencimento_enviado(
+                login_id
+            )
+
+        except Exception as erro:
+            log_erro(
+                "ERRO AO AVISAR VENCIMENTO:",
+                repr(erro),
+            )
+
+
+# =========================================================
+# CONTA VENCIDA (PRAZO JÁ ATINGIDO) — AVISA CLIENTE E ADMIN
+# =========================================================
+
+async def verificar_contas_vencidas(
+    bot,
+):
+
+    contas = listar_logins_vencidos()
+
+    if not contas:
+        return
+
+    log_info(
+        f"⌛ {len(contas)} conta(s) com o prazo "
+        "encerrado."
+    )
+
+    for conta in contas:
+
+        try:
+            (
+                login_id,
+                usuario_id,
+                nome_cliente,
+                username_cliente,
+                produto_id,
+                nome_produto,
+                vendido_em,
+                duracao_dias,
+            ) = conta
+
+            username_texto = (
+                f"@{username_cliente}"
+                if username_cliente
+                else "Não informado"
+            )
+
+            # -----------------------------------------
+            # AVISO PARA O CLIENTE
+            # -----------------------------------------
+
+            try:
+                await bot.send_message(
+                    chat_id=usuario_id,
+                    text=(
+                        "⌛ *SEU PRAZO DE ACESSO "
+                        "ACABOU*\n\n"
+                        "━━━━━━━━━━━━━━━━━━\n"
+                        f"📦 *Produto:* {nome_produto}\n"
+                        f"📅 *Duração:* {duracao_dias} "
+                        "dias\n"
+                        "━━━━━━━━━━━━━━━━━━\n\n"
+                        "O período da sua conta chegou "
+                        "ao fim.\n\n"
+                        "⚠️ Se não for renovada, a "
+                        "senha poderá ser trocada e "
+                        "o acesso será encerrado.\n\n"
+                        "Clique abaixo para renovar "
+                        "agora e continuar com acesso."
+                    ),
+                    reply_markup=InlineKeyboardMarkup(
+                        [
+                            [
+                                InlineKeyboardButton(
+                                    "🔄 Renovar agora",
+                                    callback_data=(
+                                        "renovar_login_"
+                                        f"{login_id}"
+                                    ),
+                                )
+                            ]
+                        ]
+                    ),
+                    parse_mode="Markdown",
+                )
+            except Exception as erro_cliente:
+                log_erro(
+                    "ERRO AO AVISAR CLIENTE "
+                    "(VENCIMENTO):",
+                    repr(erro_cliente),
+                )
+
+            # -----------------------------------------
+            # AVISO PARA O ADMIN
+            # -----------------------------------------
+
+            await bot.send_message(
+                chat_id=ADMIN_ID,
+                text=(
+                    "⌛ *PRAZO ENCERRADO — AÇÃO "
+                    "NECESSÁRIA*\n\n"
+                    "━━━━━━━━━━━━━━━━━━\n"
+                    f"📦 *Produto:* {nome_produto}\n"
+                    f"👤 *Cliente:* "
+                    f"{nome_cliente or 'Não informado'}\n"
+                    f"🔗 *Username:* {username_texto}\n"
+                    f"🆔 *ID do cliente:* `{usuario_id}`\n"
+                    f"🔐 *ID da conta:* `{login_id}`\n"
+                    f"📅 *Vendido em:* {vendido_em}\n"
+                    f"⏳ *Duração:* {duracao_dias} dias\n"
+                    "━━━━━━━━━━━━━━━━━━\n\n"
+                    "O cliente já foi avisado. Se ele "
+                    "não renovar, considere trocar a "
+                    "senha dessa conta."
+                ),
+                parse_mode="Markdown",
+            )
+
+            marcar_vencimento_final_notificado(
+                login_id
+            )
+
+        except Exception as erro:
+            log_erro(
+                "ERRO AO PROCESSAR VENCIMENTO "
+                "FINAL:",
+                repr(erro),
+            )
+
+
+async def apagar_mensagens_antigas_grupo(
+    bot,
+):
+
+    mensagens = listar_mensagens_grupo_para_apagar(
+        dias=3
+    )
+
+    if not mensagens:
+        return
+
+    log_info(
+        f"🧹 Apagando {len(mensagens)} "
+        "mensagem(ns) antiga(s) do grupo."
+    )
+
+    for registro_id, chat_id, message_id in mensagens:
+
+        try:
+            await bot.delete_message(
+                chat_id=chat_id,
+                message_id=message_id,
+            )
+        except Exception as erro:
+            log_erro(
+                "ERRO AO APAGAR MENSAGEM DO "
+                "GRUPO:",
+                repr(erro),
+            )
+
+        marcar_mensagem_grupo_apagada(
+            registro_id
+        )
+
+
+async def loop_verificador_vencimentos(
+    application: Application,
+):
+    log_info(
+        "⏳ Verificador de vencimentos iniciado."
+    )
+
+    while True:
+        try:
+            await verificar_vencimentos_proximos(
+                application.bot
+            )
+
+            await verificar_contas_vencidas(
+                application.bot
+            )
+
+            await apagar_mensagens_antigas_grupo(
+                application.bot
+            )
+
+        except asyncio.CancelledError:
+            log_info(
+                "⏳ Verificador de vencimentos "
+                "encerrado."
+            )
+            raise
+
+        except Exception as erro:
+            log_erro(
+                "ERRO NO LOOP DE VENCIMENTOS:",
+                repr(erro),
+            )
+
+        await asyncio.sleep(
+            INTERVALO_VERIFICACAO_VENCIMENTOS
+        )
+
+
+INTERVALO_RELATORIO_VENDAS = 24 * 60 * 60
+
+
+async def enviar_relatorio_vendas(
+    bot,
+):
+
+    try:
+
+        qtd_dia, total_dia = relatorio_vendas_periodo(24)
+        qtd_semana, total_semana = relatorio_vendas_periodo(
+            24 * 7
+        )
+
+        destino = (
+            obter_configuracao("suporte_chat_id")
+            or ADMIN_ID
+        )
+
+        await bot.send_message(
+            chat_id=destino,
+            text=(
+                "📊 *RELATÓRIO DE VENDAS*\n\n"
+                "━━━━━━━━━━━━━━━━━━\n"
+                "🗓️ *Últimas 24h*\n"
+                f"🛍️ Vendas: {qtd_dia}\n"
+                f"💰 Faturamento: R$ {total_dia:.2f}\n"
+                "━━━━━━━━━━━━━━━━━━\n"
+                "🗓️ *Últimos 7 dias*\n"
+                f"🛍️ Vendas: {qtd_semana}\n"
+                f"💰 Faturamento: R$ {total_semana:.2f}\n"
+                "━━━━━━━━━━━━━━━━━━"
+            ),
+            parse_mode="Markdown",
+        )
+
+    except Exception as erro:
+        log_erro(
+            "ERRO NO RELATÓRIO DE VENDAS:",
+            repr(erro),
+        )
+
+
+async def loop_relatorio_vendas(
+    application: Application,
+):
+    log_info(
+        "📊 Relatório automático de vendas iniciado."
+    )
+
+    while True:
+
+        await asyncio.sleep(
+            INTERVALO_RELATORIO_VENDAS
+        )
+
+        try:
+            await enviar_relatorio_vendas(
+                application.bot
+            )
+
+        except asyncio.CancelledError:
+            log_info(
+                "📊 Relatório automático de "
+                "vendas encerrado."
+            )
+            raise
+
+        except Exception as erro:
+            log_erro(
+                "ERRO NO LOOP DE RELATÓRIO:",
+                repr(erro),
+            )
+
+
+async def loop_verificador_pagamentos(
+    application: Application,
+):
+    log_info("💳 Verificador automático de PIX iniciado.")
+
+    while True:
+        try:
+            context = ContextTypes.DEFAULT_TYPE
+
+            # Cria um objeto de contexto simples através da própria
+            # aplicação para manter acesso ao bot.
+            class VerificadorContext:
+                bot = application.bot
+
+            await verificar_pagamentos_automaticamente(
+                VerificadorContext()
+            )
+
+        except asyncio.CancelledError:
+            log_info("💳 Verificador automático encerrado.")
+            raise
+
+        except Exception as erro:
+            log_erro(
+                "ERRO NO LOOP DO VERIFICADOR:",
+                repr(erro),
+            )
+
+        await asyncio.sleep(
+            INTERVALO_VERIFICACAO
+        )
+
+
+async def iniciar_verificador(
+    application: Application,
+):
+    try:
+        await application.bot.set_my_commands(
+            [
+                BotCommand(
+                    "start",
+                    "Iniciar Bot",
+                ),
+                BotCommand(
+                    "pix",
+                    "Adicionar saldo",
+                ),
+                BotCommand(
+                    "admin",
+                    "Menu adm",
+                ),
+                BotCommand(
+                    "id",
+                    "Mostrar seu ID do Telegram",
+                ),
+            ]
+        )
+    except Exception as erro:
+        log_erro(
+            "ERRO AO REGISTRAR COMANDOS:",
+            repr(erro),
+        )
+
+    task = asyncio.create_task(
+        loop_verificador_pagamentos(application),
+        name=VERIFICADOR_TASK,
+    )
+
+    application.bot_data[
+        VERIFICADOR_TASK
+    ] = task
+
+    task_vencimentos = asyncio.create_task(
+        loop_verificador_vencimentos(application),
+        name=VERIFICADOR_VENCIMENTOS_TASK,
+    )
+
+    application.bot_data[
+        VERIFICADOR_VENCIMENTOS_TASK
+    ] = task_vencimentos
+
+    task_relatorio = asyncio.create_task(
+        loop_relatorio_vendas(application),
+        name=RELATORIO_VENDAS_TASK,
+    )
+
+    application.bot_data[
+        RELATORIO_VENDAS_TASK
+    ] = task_relatorio
+
+
+async def parar_verificador(
+    application: Application,
+):
+    task = application.bot_data.get(
+        VERIFICADOR_TASK
+    )
+
+    if task:
+        task.cancel()
+
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
+
+    task_vencimentos = application.bot_data.get(
+        VERIFICADOR_VENCIMENTOS_TASK
+    )
+
+    if task_vencimentos:
+        task_vencimentos.cancel()
+
+        try:
+            await task_vencimentos
+        except asyncio.CancelledError:
+            pass
+
+    task_relatorio = application.bot_data.get(
+        RELATORIO_VENDAS_TASK
+    )
+
+    if task_relatorio:
+        task_relatorio.cancel()
+
+        try:
+            await task_relatorio
+        except asyncio.CancelledError:
+            pass
+
