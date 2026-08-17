@@ -67,6 +67,9 @@ from database import (
     listar_logins_vencidos,
     marcar_vencimento_final_notificado,
     listar_grupos_obrigatorios,
+    registrar_mensagem_grupo_anuncios,
+    listar_mensagens_grupo_para_apagar,
+    marcar_mensagem_grupo_apagada,
     listar_contas_usuario,
     consultar_login,
     produto_ja_alertou_estoque_baixo,
@@ -415,6 +418,11 @@ async def anunciar_venda_grupo(
             parse_mode="Markdown",
         )
 
+        registrar_mensagem_grupo_anuncios(
+            grupo_id_int,
+            mensagem_enviada.message_id,
+        )
+
     except Exception as erro:
         print(
             "ERRO AO ANUNCIAR VENDA:",
@@ -442,7 +450,7 @@ async def anunciar_esgotado_grupo(
 
         me = await bot.get_me()
 
-        await bot.send_message(
+        mensagem_enviada = await bot.send_message(
             chat_id=grupo_id_int,
             text=(
                 "❌ *Estoque esgotado!* "
@@ -462,6 +470,11 @@ async def anunciar_esgotado_grupo(
                 ]
             ),
             parse_mode="Markdown",
+        )
+
+        registrar_mensagem_grupo_anuncios(
+            grupo_id_int,
+            mensagem_enviada.message_id,
         )
 
     except Exception as erro:
@@ -2005,6 +2018,41 @@ async def verificar_contas_vencidas(
             )
 
 
+async def apagar_mensagens_antigas_grupo(
+    bot,
+):
+
+    mensagens = listar_mensagens_grupo_para_apagar(
+        dias=3
+    )
+
+    if not mensagens:
+        return
+
+    print(
+        f"🧹 Apagando {len(mensagens)} "
+        "mensagem(ns) antiga(s) do grupo."
+    )
+
+    for registro_id, chat_id, message_id in mensagens:
+
+        try:
+            await bot.delete_message(
+                chat_id=chat_id,
+                message_id=message_id,
+            )
+        except Exception as erro:
+            print(
+                "ERRO AO APAGAR MENSAGEM DO "
+                "GRUPO:",
+                repr(erro),
+            )
+
+        marcar_mensagem_grupo_apagada(
+            registro_id
+        )
+
+
 async def loop_verificador_vencimentos(
     application: Application,
 ):
@@ -2019,6 +2067,10 @@ async def loop_verificador_vencimentos(
             )
 
             await verificar_contas_vencidas(
+                application.bot
+            )
+
+            await apagar_mensagens_antigas_grupo(
                 application.bot
             )
 
