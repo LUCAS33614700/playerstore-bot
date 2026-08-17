@@ -65,6 +65,12 @@ from database import (
     usuario_ja_recebeu_lembrete,
     marcar_lembrete_enviado,
     listar_grupos_obrigatorios,
+    criar_encomenda,
+    obter_encomenda,
+    definir_valor_encomenda,
+    marcar_encomenda_paga,
+    marcar_encomenda_entregue,
+    cancelar_encomenda,
     registrar_mensagem_grupo_anuncios,
     listar_contas_usuario,
     consultar_login,
@@ -1289,6 +1295,138 @@ async def pedir_valor_saldo(
 
 
 # =========================================================
+# ENCOMENDA (PRÉ-VENDA)
+# =========================================================
+# Fluxo: cliente descreve o que procura -> admin avalia e
+# define o valor -> cliente paga com o saldo -> admin entrega
+# manualmente e marca como concluída.
+
+async def iniciar_encomenda(
+    query,
+    context,
+):
+
+    context.user_data.clear()
+    context.user_data[
+        "aguardando_encomenda_descricao"
+    ] = True
+
+    await editar_ou_substituir(
+        query,
+        context,
+        "📝 *FAZER ENCOMENDA*\n\n"
+        "Não achou o que procurava no catálogo? "
+        "Descreva exatamente o que você quer "
+        "(serviço, app, plataforma, duração "
+        "etc).\n\n"
+        "Vamos avaliar e te avisamos o valor "
+        "por aqui mesmo.",
+        reply_markup=InlineKeyboardMarkup(
+            [
+                [
+                    InlineKeyboardButton(
+                        "⬅️ Voltar",
+                        callback_data="voltar_menu",
+                    )
+                ]
+            ]
+        ),
+        parse_mode="Markdown",
+    )
+
+
+async def processar_descricao_encomenda(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+):
+
+    if not context.user_data.get(
+        "aguardando_encomenda_descricao"
+    ):
+        return
+
+    if not update.message:
+        return
+
+    texto = (update.message.text or "").strip()
+
+    if len(texto) < 5:
+        await update.message.reply_text(
+            "❌ Descreva com um pouco mais de "
+            "detalhe o que você procura."
+        )
+        return
+
+    context.user_data[
+        "aguardando_encomenda_descricao"
+    ] = False
+
+    usuario = update.effective_user
+
+    encomenda_id = criar_encomenda(
+        usuario.id,
+        texto,
+    )
+
+    await update.message.reply_text(
+        "✅ *Encomenda recebida!*\n\n"
+        "Vamos avaliar seu pedido e te "
+        "avisamos o valor por aqui em breve.",
+        parse_mode="Markdown",
+    )
+
+    username_texto = (
+        f"@{usuario.username}"
+        if usuario.username
+        else "Não informado"
+    )
+
+    try:
+        await context.bot.send_message(
+            chat_id=ADMIN_ID,
+            text=(
+                "📝 *NOVA ENCOMENDA*\n\n"
+                "━━━━━━━━━━━━━━━━━━\n"
+                f"🆔 *Encomenda:* `#{encomenda_id}`\n"
+                f"👤 *Cliente:* "
+                f"{usuario.first_name or ''}\n"
+                f"🔗 *Username:* {username_texto}\n"
+                f"🆔 *ID do cliente:* `{usuario.id}`\n"
+                "━━━━━━━━━━━━━━━━━━\n\n"
+                f"📋 *Pedido:*\n{texto}"
+            ),
+            reply_markup=InlineKeyboardMarkup(
+                [
+                    [
+                        InlineKeyboardButton(
+                            "💰 Definir valor",
+                            callback_data=(
+                                "encomenda_valor_"
+                                f"{encomenda_id}"
+                            ),
+                        )
+                    ],
+                    [
+                        InlineKeyboardButton(
+                            "❌ Recusar",
+                            callback_data=(
+                                "encomenda_recusar_"
+                                f"{encomenda_id}"
+                            ),
+                        )
+                    ],
+                ]
+            ),
+            parse_mode="Markdown",
+        )
+    except Exception as erro:
+        log_erro(
+            "ERRO AO AVISAR ADMIN (ENCOMENDA):",
+            repr(erro),
+        )
+
+
+# =========================================================
 # QR CODE BASE64
 # =========================================================
 
@@ -1566,6 +1704,15 @@ async def processar_mensagem_texto(
 
     if context.user_data.get("aguardando_valor"):
         await processar_valor_saldo(
+            update,
+            context,
+        )
+        return
+
+    if context.user_data.get(
+        "aguardando_encomenda_descricao"
+    ):
+        await processar_descricao_encomenda(
             update,
             context,
         )
@@ -4452,6 +4599,295 @@ async def botoes(
                 ]
             ),
             parse_mode="Markdown",
+        )
+        return
+
+    # =====================================================
+    # ENCOMENDA (PRÉ-VENDA)
+    # =====================================================
+
+    if acao == "fazer_encomenda":
+        await iniciar_encomenda(
+            query,
+            context,
+        )
+        return
+
+    if acao.startswith("encomenda_valor_"):
+
+        if not eh_admin_principal(usuario_id):
+            await query.answer(
+                "❌ Acesso negado.",
+                show_alert=True,
+            )
+            return
+
+        encomenda_id = acao.replace(
+            "encomenda_valor_",
+            "",
+            1,
+        )
+
+        context.user_data.clear()
+        context.user_data[
+            "admin_acao"
+        ] = "definir_valor_encomenda"
+        context.user_data[
+            "encomenda_id"
+        ] = encomenda_id
+
+        await query.answer()
+
+        await query.message.reply_text(
+            "💰 Digite o valor a cobrar por essa "
+            "encomenda (só o número).\n\n"
+            "Exemplo:\n"
+            "`25`\n"
+            "`49,90`",
+            parse_mode="Markdown",
+        )
+        return
+
+    if acao.startswith("encomenda_recusar_"):
+
+        if not eh_admin_principal(usuario_id):
+            await query.answer(
+                "❌ Acesso negado.",
+                show_alert=True,
+            )
+            return
+
+        encomenda_id = acao.replace(
+            "encomenda_recusar_",
+            "",
+            1,
+        )
+
+        encomenda = obter_encomenda(encomenda_id)
+
+        if not encomenda:
+            await query.answer(
+                "❌ Encomenda não encontrada.",
+                show_alert=True,
+            )
+            return
+
+        cancelar_encomenda(encomenda_id)
+
+        cliente_id = encomenda[1]
+
+        try:
+            await context.bot.send_message(
+                chat_id=cliente_id,
+                text=(
+                    "❌ *ENCOMENDA RECUSADA*\n\n"
+                    "Infelizmente não conseguimos "
+                    "atender esse pedido desta vez. "
+                    "Fica à vontade pra tentar com "
+                    "outro pedido!"
+                ),
+                parse_mode="Markdown",
+            )
+        except Exception as erro:
+            log_erro(
+                "ERRO AO AVISAR RECUSA:",
+                repr(erro),
+            )
+
+        await query.answer(
+            "✅ Encomenda recusada.",
+        )
+
+        try:
+            await query.edit_message_reply_markup(
+                reply_markup=None
+            )
+        except Exception:
+            pass
+
+        return
+
+    if acao.startswith("encomenda_pagar_"):
+
+        encomenda_id = acao.replace(
+            "encomenda_pagar_",
+            "",
+            1,
+        )
+
+        encomenda = obter_encomenda(encomenda_id)
+
+        if not encomenda:
+            await query.answer(
+                "❌ Encomenda não encontrada.",
+                show_alert=True,
+            )
+            return
+
+        (
+            _id,
+            cliente_id,
+            descricao,
+            valor,
+            status,
+            _criado_em,
+        ) = encomenda
+
+        if cliente_id != usuario_id:
+            await query.answer(
+                "❌ Essa encomenda não é sua.",
+                show_alert=True,
+            )
+            return
+
+        if status != "aguardando_pagamento":
+            await query.answer(
+                "❌ Essa encomenda já foi paga, "
+                "recusada ou ainda não tem valor "
+                "definido.",
+                show_alert=True,
+            )
+            return
+
+        saldo = float(
+            consultar_saldo(usuario_id) or 0
+        )
+
+        if saldo < float(valor):
+            faltando = float(valor) - saldo
+            await query.answer()
+            await query.message.reply_text(
+                "❌ *SALDO INSUFICIENTE*\n\n"
+                f"💰 *Valor da encomenda:* "
+                f"R$ {float(valor):.2f}\n"
+                f"💵 *Seu saldo:* R$ {saldo:.2f}\n"
+                f"➕ *Falta:* R$ {faltando:.2f}\n\n"
+                "Adicione saldo e tente pagar de "
+                "novo.",
+                reply_markup=InlineKeyboardMarkup(
+                    [
+                        [
+                            InlineKeyboardButton(
+                                "💵 Adicionar Saldo",
+                                callback_data=(
+                                    "adicionar_saldo"
+                                ),
+                            )
+                        ]
+                    ]
+                ),
+                parse_mode="Markdown",
+            )
+            return
+
+        sucesso = retirar_saldo(
+            usuario_id,
+            float(valor),
+        )
+
+        if not sucesso:
+            await query.answer(
+                "❌ Não foi possível debitar o "
+                "saldo. Tente novamente.",
+                show_alert=True,
+            )
+            return
+
+        marcar_encomenda_paga(encomenda_id)
+
+        await query.answer(
+            "✅ Pagamento confirmado!",
+        )
+
+        try:
+            await query.edit_message_text(
+                "✅ *PAGAMENTO CONFIRMADO!*\n\n"
+                f"📋 *Pedido:* {descricao}\n"
+                f"💰 *Valor pago:* "
+                f"R$ {float(valor):.2f}\n\n"
+                "Aguarde, vamos entregar em breve.",
+                parse_mode="Markdown",
+            )
+        except Exception:
+            pass
+
+        try:
+            await context.bot.send_message(
+                chat_id=ADMIN_ID,
+                text=(
+                    "💰 *ENCOMENDA PAGA!*\n\n"
+                    "━━━━━━━━━━━━━━━━━━\n"
+                    f"🆔 *Encomenda:* `#{encomenda_id}`\n"
+                    f"🆔 *Cliente:* `{cliente_id}`\n"
+                    f"💰 *Valor:* R$ {float(valor):.2f}\n"
+                    "━━━━━━━━━━━━━━━━━━\n\n"
+                    f"📋 *Pedido:*\n{descricao}\n\n"
+                    "Hora de entregar!"
+                ),
+                reply_markup=InlineKeyboardMarkup(
+                    [
+                        [
+                            InlineKeyboardButton(
+                                "📦 Entregar agora",
+                                callback_data=(
+                                    "encomenda_entregar_"
+                                    f"{encomenda_id}"
+                                ),
+                            )
+                        ]
+                    ]
+                ),
+                parse_mode="Markdown",
+            )
+        except Exception as erro:
+            log_erro(
+                "ERRO AO AVISAR PAGAMENTO "
+                "(ENCOMENDA):",
+                repr(erro),
+            )
+
+        return
+
+    if acao.startswith("encomenda_entregar_"):
+
+        if not eh_admin_principal(usuario_id):
+            await query.answer(
+                "❌ Acesso negado.",
+                show_alert=True,
+            )
+            return
+
+        encomenda_id = acao.replace(
+            "encomenda_entregar_",
+            "",
+            1,
+        )
+
+        encomenda = obter_encomenda(encomenda_id)
+
+        if not encomenda or encomenda[4] != "pago":
+            await query.answer(
+                "❌ Essa encomenda não está "
+                "com pagamento confirmado.",
+                show_alert=True,
+            )
+            return
+
+        context.user_data.clear()
+        context.user_data[
+            "admin_acao"
+        ] = "entregar_encomenda"
+        context.user_data[
+            "encomenda_id"
+        ] = encomenda_id
+
+        await query.answer()
+
+        await query.message.reply_text(
+            "✍️ Digite/cole agora o que vai ser "
+            "enviado ao cliente (dados da conta, "
+            "instruções, link etc). Tudo que você "
+            "mandar será enviado direto pra ele."
         )
         return
 
