@@ -14,6 +14,7 @@ from database import (
     listar_todos_produtos,
     buscar_produto,
     adicionar_login,
+    adicionar_varios_logins,
     listar_logins_produto,
     listar_logins_disponiveis,
     consultar_estoque_logins,
@@ -717,17 +718,22 @@ async def iniciar_adicionar_conta(
     nome = produto[1]
 
     await query.edit_message_text(
-        "➕ *ADICIONAR CONTA AO ESTOQUE*\n\n"
+        "➕ *ADICIONAR CONTA(S) AO ESTOQUE*\n\n"
         f"📦 *Produto:* {nome}\n\n"
         "Envie agora os dados da conta.\n\n"
-        "Você pode enviar, por exemplo:\n\n"
+        "Para uma única conta, envie, por exemplo:\n\n"
         "`email@gmail.com:senha123`\n\n"
         "Ou:\n\n"
         "`Email: email@gmail.com`\n"
         "`Senha: senha123`\n"
         "`PIN: 1234`\n\n"
-        "Tudo que você enviar será salvo "
-        "como uma única conta.\n\n"
+        "📋 *Para várias contas de uma vez,* "
+        "envie uma por linha, por exemplo:\n\n"
+        "`email1@gmail.com:senha1`\n"
+        "`email2@gmail.com:senha2`\n"
+        "`email3@gmail.com:senha3`\n\n"
+        "Cada linha vira uma conta separada no "
+        "estoque.\n\n"
         "⬅️ Para cancelar, clique no botão abaixo.",
         reply_markup=InlineKeyboardMarkup(
             [
@@ -743,6 +749,64 @@ async def iniciar_adicionar_conta(
         ),
         parse_mode="Markdown",
     )
+
+
+# =========================================================
+# DIVIDIR TEXTO EM VÁRIAS CONTAS
+# =========================================================
+# Regras:
+# - Blocos separados por linha em branco -> cada bloco é
+#   uma conta (permite formato com Email/Senha/PIN em
+#   várias linhas por conta).
+# - Sem linha em branco, mas com várias linhas onde nenhuma
+#   usa rótulos (Email:, Senha:, PIN:...) -> cada linha é
+#   uma conta (formato simples "usuario:senha" por linha).
+# - Qualquer outro caso -> o texto inteiro é uma única conta.
+
+ROTULOS_CAMPO_UNICO = (
+    "email:",
+    "e-mail:",
+    "usuário:",
+    "usuario:",
+    "user:",
+    "login:",
+    "senha:",
+    "password:",
+    "pin:",
+)
+
+
+def dividir_contas_do_texto(texto):
+
+    blocos = [
+        bloco.strip()
+        for bloco in texto.split("\n\n")
+        if bloco.strip()
+    ]
+
+    if len(blocos) > 1:
+        return blocos
+
+    linhas = [
+        linha.strip()
+        for linha in texto.split("\n")
+        if linha.strip()
+    ]
+
+    todas_linhas_simples = (
+        len(linhas) > 1
+        and all(
+            not linha.lower().startswith(
+                ROTULOS_CAMPO_UNICO
+            )
+            for linha in linhas
+        )
+    )
+
+    if todas_linhas_simples:
+        return linhas
+
+    return [texto.strip()]
 
 
 # =========================================================
@@ -817,24 +881,48 @@ async def processar_admin_texto(
 
             return True
 
-        login_id = adicionar_login(
-            produto_id,
-            texto,
-        )
+        contas = dividir_contas_do_texto(texto)
+
+        nome = produto[1]
+        preco = produto[3]
+
+        if len(contas) > 1:
+
+            quantidade_adicionada = (
+                adicionar_varios_logins(
+                    produto_id,
+                    contas,
+                )
+            )
+
+            resumo_id = (
+                f"🔢 *Contas adicionadas:* "
+                f"{quantidade_adicionada}"
+            )
+
+        else:
+
+            login_id = adicionar_login(
+                produto_id,
+                contas[0],
+            )
+
+            quantidade_adicionada = 1
+
+            resumo_id = (
+                f"🆔 *ID da conta:* `{login_id}`"
+            )
 
         estoque = consultar_estoque_logins(
             produto_id
         )
-
-        nome = produto[1]
-        preco = produto[3]
 
         await anunciar_abastecimento_grupo(
             context,
             produto_id,
             nome,
             float(preco),
-            1,
+            quantidade_adicionada,
         )
 
         await notificar_reposicao_estoque(
@@ -846,9 +934,9 @@ async def processar_admin_texto(
         limpar_estado(context)
 
         await update.message.reply_text(
-            "✅ *CONTA ADICIONADA!*\n\n"
+            "✅ *CONTA(S) ADICIONADA(S)!*\n\n"
             f"📦 *Produto:* {nome}\n"
-            f"🆔 *ID da conta:* `{login_id}`\n"
+            f"{resumo_id}\n"
             f"📊 *Contas disponíveis:* {estoque}",
             reply_markup=InlineKeyboardMarkup(
                 [
