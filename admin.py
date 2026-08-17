@@ -34,6 +34,9 @@ from database import (
     listar_interessados_reposicao,
     remover_avisos_reposicao,
     listar_todos_usuarios,
+    adicionar_grupo_obrigatorio,
+    listar_grupos_obrigatorios,
+    remover_grupo_obrigatorio,
 )
 
 
@@ -1555,10 +1558,9 @@ async def processar_admin_texto(
 
             return True
 
-        definir_configuracao(
-            "grupo_obrigatorio_id",
-            valor,
-        )
+        context.user_data[
+            "novo_grupo_obrigatorio_id"
+        ] = valor
 
         context.user_data[
             "admin_acao"
@@ -1595,23 +1597,58 @@ async def processar_admin_texto(
 
             return True
 
-        definir_configuracao(
-            "grupo_obrigatorio_link",
+        grupo_id = context.user_data.get(
+            "novo_grupo_obrigatorio_id"
+        )
+
+        if not grupo_id:
+
+            limpar_estado(context)
+
+            await update.message.reply_text(
+                "❌ Sessão expirada. Comece de "
+                "novo pelo painel."
+            )
+
+            return True
+
+        adicionar_grupo_obrigatorio(
+            grupo_id,
             valor,
         )
 
         limpar_estado(context)
 
         await update.message.reply_text(
-            "✅ *GRUPO OBRIGATÓRIO CONFIGURADO!*\n\n"
-            "A partir de agora, o bot vai "
-            "exigir que o cliente entre nesse "
-            "grupo antes de usar o `/start`.\n\n"
+            "✅ *GRUPO ADICIONADO!*\n\n"
+            "A partir de agora, o bot também "
+            "vai exigir que o cliente entre "
+            "nesse grupo antes de usar o "
+            "`/start`.\n\n"
             "⚠️ Confirme que o bot é *admin* "
             "desse grupo/canal (precisa disso "
-            "pra checar quem é membro).",
+            "pra checar quem é membro).\n\n"
+            "Quer adicionar outro grupo?",
             reply_markup=InlineKeyboardMarkup(
                 [
+                    [
+                        InlineKeyboardButton(
+                            "➕ ADICIONAR OUTRO",
+                            callback_data=(
+                                "admin_add_"
+                                "grupo_obrigatorio"
+                            ),
+                        )
+                    ],
+                    [
+                        InlineKeyboardButton(
+                            "🔒 VER GRUPOS",
+                            callback_data=(
+                                "admin_grupo_"
+                                "obrigatorio"
+                            ),
+                        )
+                    ],
                     [
                         InlineKeyboardButton(
                             "👑 PAINEL ADMIN",
@@ -2387,28 +2424,39 @@ async def iniciar_grupo_obrigatorio(
 
     limpar_estado(context)
 
-    context.user_data[
-        "admin_acao"
-    ] = "definir_grupo_obrigatorio_id"
-
-    atual_id = obter_configuracao(
-        "grupo_obrigatorio_id"
-    )
+    grupos = listar_grupos_obrigatorios()
 
     texto = (
-        "🔒 *GRUPO OBRIGATÓRIO*\n\n"
+        "🔒 *GRUPOS OBRIGATÓRIOS*\n\n"
         "Se configurado, o cliente só consegue "
-        "usar o bot depois de entrar nesse "
-        "grupo/canal.\n\n"
-        "*Como configurar:*\n\n"
-        "1️⃣ Mande `/grupoid` dentro do grupo\n"
-        "2️⃣ Cole o ID aqui\n"
-        "3️⃣ Depois eu vou pedir o link de "
-        "convite\n\n"
+        "usar o bot depois de entrar em *todos* "
+        "os grupos/canais cadastrados abaixo.\n\n"
     )
 
-    if atual_id:
-        texto += f"📋 *ID atual:* `{atual_id}`\n\n"
+    botoes = []
+
+    if grupos:
+
+        texto += "📋 *Cadastrados:*\n\n"
+
+        for registro_id, grupo_id, link in grupos:
+
+            texto += f"• `{grupo_id}` — {link}\n"
+
+            botoes.append(
+                [
+                    InlineKeyboardButton(
+                        f"🗑️ Remover {grupo_id}",
+                        callback_data=(
+                            "admin_rm_grupo_obg_"
+                            f"{registro_id}"
+                        ),
+                    )
+                ]
+            )
+
+        texto += "\n"
+
     else:
         texto += (
             "📋 *Nenhum cadastrado* — hoje "
@@ -2416,7 +2464,57 @@ async def iniciar_grupo_obrigatorio(
             "livremente.\n\n"
         )
 
-    texto += "⬅️ Para cancelar, clique no botão abaixo."
+    botoes.append(
+        [
+            InlineKeyboardButton(
+                "➕ ADICIONAR GRUPO",
+                callback_data=(
+                    "admin_add_grupo_obrigatorio"
+                ),
+            )
+        ]
+    )
+
+    botoes.append(
+        [
+            InlineKeyboardButton(
+                "⬅️ VOLTAR",
+                callback_data="admin_menu",
+            )
+        ]
+    )
+
+    await query.edit_message_text(
+        texto,
+        reply_markup=InlineKeyboardMarkup(botoes),
+        parse_mode="Markdown",
+    )
+
+
+async def iniciar_adicionar_grupo_obrigatorio(
+    query,
+    context,
+):
+
+    if not await verificar_admin_query(query):
+
+        return
+
+    limpar_estado(context)
+
+    context.user_data[
+        "admin_acao"
+    ] = "definir_grupo_obrigatorio_id"
+
+    texto = (
+        "➕ *ADICIONAR GRUPO OBRIGATÓRIO*\n\n"
+        "*Como configurar:*\n\n"
+        "1️⃣ Mande `/grupoid` dentro do grupo\n"
+        "2️⃣ Cole o ID aqui\n"
+        "3️⃣ Depois eu vou pedir o link de "
+        "convite\n\n"
+        "⬅️ Para cancelar, clique no botão abaixo."
+    )
 
     await query.edit_message_text(
         texto,
@@ -2425,12 +2523,36 @@ async def iniciar_grupo_obrigatorio(
                 [
                     InlineKeyboardButton(
                         "❌ CANCELAR",
-                        callback_data="admin_menu",
+                        callback_data=(
+                            "admin_grupo_obrigatorio"
+                        ),
                     )
                 ]
             ]
         ),
         parse_mode="Markdown",
+    )
+
+
+async def executar_remover_grupo_obrigatorio(
+    query,
+    context,
+    registro_id,
+):
+
+    if not await verificar_admin_query(query):
+
+        return
+
+    remover_grupo_obrigatorio(registro_id)
+
+    await query.answer(
+        "✅ Grupo removido!",
+    )
+
+    await iniciar_grupo_obrigatorio(
+        query,
+        context,
     )
 
 
@@ -3456,6 +3578,40 @@ async def botoes_admin(
         await iniciar_grupo_obrigatorio(
             query,
             context,
+        )
+
+        return
+
+    if acao == "admin_add_grupo_obrigatorio":
+
+        await iniciar_adicionar_grupo_obrigatorio(
+            query,
+            context,
+        )
+
+        return
+
+    if acao.startswith("admin_rm_grupo_obg_"):
+
+        try:
+            registro_id = int(
+                acao.replace(
+                    "admin_rm_grupo_obg_",
+                    "",
+                    1,
+                )
+            )
+        except ValueError:
+            await query.answer(
+                "❌ Grupo inválido.",
+                show_alert=True,
+            )
+            return
+
+        await executar_remover_grupo_obrigatorio(
+            query,
+            context,
+            registro_id,
         )
 
         return
