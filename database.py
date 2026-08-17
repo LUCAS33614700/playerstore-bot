@@ -232,6 +232,20 @@ def criar_tabelas():
         pass
 
     # -----------------------------------------------------
+    # LIMITE DE CRÉDITO (compra mesmo com saldo insuficiente,
+    # até o limite liberado pelo admin para aquele cliente)
+    # -----------------------------------------------------
+
+    try:
+        cursor.execute("""
+            ALTER TABLE usuarios
+            ADD COLUMN limite_credito
+            REAL DEFAULT 0
+        """)
+    except sqlite3.OperationalError:
+        pass
+
+    # -----------------------------------------------------
     # DURAÇÃO DO PRODUTO / AVISO DE VENCIMENTO
     # -----------------------------------------------------
 
@@ -323,6 +337,21 @@ def criar_tabelas():
             produto_id INTEGER NOT NULL,
             criado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             UNIQUE(usuario_id, produto_id)
+        )
+    """)
+
+    # -----------------------------------------------------
+    # ENCOMENDAS (PRÉ-VENDA)
+    # -----------------------------------------------------
+
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS encomendas (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            usuario_id INTEGER NOT NULL,
+            descricao TEXT NOT NULL,
+            valor REAL,
+            status TEXT NOT NULL DEFAULT 'aguardando_valor',
+            criado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
     """)
 
@@ -1342,11 +1371,15 @@ def retirar_saldo(
     conn = conectar()
     cursor = conn.cursor()
 
+    # Permite o saldo ficar negativo até o limite de
+    # crédito liberado pro cliente (0 por padrão, ou seja,
+    # sem crédito o comportamento continua o mesmo de antes).
+
     cursor.execute("""
         UPDATE usuarios
         SET saldo = saldo - ?
         WHERE id = ?
-        AND saldo >= ?
+        AND (saldo + COALESCE(limite_credito, 0)) >= ?
     """, (
         float(valor),
         user_id,
@@ -1359,6 +1392,53 @@ def retirar_saldo(
     conn.close()
 
     return alterado
+
+
+def definir_limite_credito(
+    user_id,
+    limite,
+):
+
+    conn = conectar()
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        UPDATE usuarios
+        SET limite_credito = ?
+        WHERE id = ?
+    """, (
+        float(limite),
+        user_id,
+    ))
+
+    alterado = cursor.rowcount > 0
+
+    conn.commit()
+    conn.close()
+
+    return alterado
+
+
+def obter_limite_credito(
+    user_id,
+):
+
+    conn = conectar()
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        SELECT COALESCE(limite_credito, 0)
+        FROM usuarios
+        WHERE id = ?
+    """, (
+        user_id,
+    ))
+
+    linha = cursor.fetchone()
+
+    conn.close()
+
+    return float(linha[0]) if linha else 0.0
 
 
 # =========================================================
@@ -2997,3 +3077,190 @@ def marcar_mensagem_grupo_apagada(
 
     conn.commit()
     conn.close()
+
+
+# =========================================================
+# ENCOMENDAS (PRÉ-VENDA — CLIENTE PEDE ALGO FORA DO CATÁLOGO)
+# =========================================================
+
+def criar_encomenda(
+    usuario_id,
+    descricao,
+):
+
+    conn = conectar()
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        INSERT INTO encomendas
+        (
+            usuario_id,
+            descricao,
+            status
+        )
+        VALUES (?, ?, 'aguardando_valor')
+    """, (
+        usuario_id,
+        descricao,
+    ))
+
+    encomenda_id = cursor.lastrowid
+
+    conn.commit()
+    conn.close()
+
+    return encomenda_id
+
+
+def obter_encomenda(
+    encomenda_id,
+):
+
+    conn = conectar()
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        SELECT
+            id,
+            usuario_id,
+            descricao,
+            valor,
+            status,
+            criado_em
+        FROM encomendas
+        WHERE id = ?
+    """, (
+        encomenda_id,
+    ))
+
+    encomenda = cursor.fetchone()
+
+    conn.close()
+
+    return encomenda
+
+
+def definir_valor_encomenda(
+    encomenda_id,
+    valor,
+):
+
+    conn = conectar()
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        UPDATE encomendas
+        SET valor = ?,
+            status = 'aguardando_pagamento'
+        WHERE id = ?
+        AND status = 'aguardando_valor'
+    """, (
+        float(valor),
+        encomenda_id,
+    ))
+
+    alterado = cursor.rowcount > 0
+
+    conn.commit()
+    conn.close()
+
+    return alterado
+
+
+def marcar_encomenda_paga(
+    encomenda_id,
+):
+
+    conn = conectar()
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        UPDATE encomendas
+        SET status = 'pago'
+        WHERE id = ?
+        AND status = 'aguardando_pagamento'
+    """, (
+        encomenda_id,
+    ))
+
+    alterado = cursor.rowcount > 0
+
+    conn.commit()
+    conn.close()
+
+    return alterado
+
+
+def marcar_encomenda_entregue(
+    encomenda_id,
+):
+
+    conn = conectar()
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        UPDATE encomendas
+        SET status = 'entregue'
+        WHERE id = ?
+        AND status = 'pago'
+    """, (
+        encomenda_id,
+    ))
+
+    alterado = cursor.rowcount > 0
+
+    conn.commit()
+    conn.close()
+
+    return alterado
+
+
+def cancelar_encomenda(
+    encomenda_id,
+):
+
+    conn = conectar()
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        UPDATE encomendas
+        SET status = 'cancelado'
+        WHERE id = ?
+        AND status IN (
+            'aguardando_valor',
+            'aguardando_pagamento'
+        )
+    """, (
+        encomenda_id,
+    ))
+
+    alterado = cursor.rowcount > 0
+
+    conn.commit()
+    conn.close()
+
+    return alterado
+
+
+def listar_encomendas_pagas_nao_entregues():
+
+    conn = conectar()
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        SELECT
+            id,
+            usuario_id,
+            descricao,
+            valor,
+            criado_em
+        FROM encomendas
+        WHERE status = 'pago'
+        ORDER BY id
+    """)
+
+    encomendas = cursor.fetchall()
+
+    conn.close()
+
+    return encomendas
