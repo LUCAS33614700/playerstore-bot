@@ -332,6 +332,70 @@ async def verificar_estoque_baixo(
         )
 
 
+async def anunciar_venda_grupo(
+    bot,
+    nome_produto,
+    preco,
+    quantidade=1,
+):
+    try:
+
+        grupo_id = obter_configuracao(
+            "grupo_anuncios_id"
+        )
+
+        if not grupo_id:
+            return
+
+        try:
+            grupo_id_int = int(grupo_id)
+        except ValueError:
+            return
+
+        me = await bot.get_me()
+
+        valor_total = float(preco) * int(quantidade)
+
+        if quantidade > 1:
+            linha_quantidade = (
+                f"📦 Quantidade: {quantidade}\n"
+            )
+        else:
+            linha_quantidade = ""
+
+        await bot.send_message(
+            chat_id=grupo_id_int,
+            text=(
+                "🎉 *NOVA VENDA REALIZADA!* "
+                f"{nome_produto}\n\n"
+                f"{linha_quantidade}"
+                f"💰 R$ {valor_total:.2f}\n"
+                "⚡ Corra antes que acabe — "
+                "boas compras! 🛒🔥"
+            ),
+            reply_markup=InlineKeyboardMarkup(
+                [
+                    [
+                        InlineKeyboardButton(
+                            "🤖 Acessar o bot",
+                            url=(
+                                f"https://t.me/"
+                                f"{me.username}"
+                            ),
+                        )
+                    ]
+                ]
+            ),
+            parse_mode="Markdown",
+        )
+
+    except Exception as erro:
+        print(
+            "ERRO AO ANUNCIAR VENDA:",
+            repr(erro),
+        )
+
+
 async def anunciar_esgotado_grupo(
     bot,
     nome_produto,
@@ -855,6 +919,13 @@ async def comprar_produto(
         context.bot,
         produto_id,
         nome,
+    )
+
+    await anunciar_venda_grupo(
+        context.bot,
+        nome,
+        preco,
+        quantidade,
     )
 
     texto_contas = ""
@@ -3485,6 +3556,13 @@ async def finalizar_compra_carrinho(
             context.bot,
             produto_id,
             nome,
+        )
+
+        await anunciar_venda_grupo(
+            context.bot,
+            nome,
+            preco,
+            quantidade,
         )
 
     if falhou:
