@@ -18,8 +18,23 @@ ADMIN_ID = int(
 # =========================
 # BANCO DE DADOS
 # =========================
+# Em serviços como o Railway, o disco do container é
+# apagado a cada novo deploy — só o que está em um Volume
+# persistente sobrevive. Por isso o caminho do banco pode
+# ser sobrescrito pela variável de ambiente DATABASE_PATH,
+# apontando pra dentro do volume (ex: /data/bot.db).
+# Sem essa variável, continua usando "bot.db" na pasta do
+# projeto, como sempre foi.
 
-DATABASE_NAME = "bot.db"
+DATABASE_NAME = os.getenv(
+    "DATABASE_PATH",
+    "bot.db",
+)
+
+_pasta_banco = os.path.dirname(DATABASE_NAME)
+
+if _pasta_banco:
+    os.makedirs(_pasta_banco, exist_ok=True)
 
 
 # =========================
