@@ -64,6 +64,9 @@ from database import (
     marcar_lembrete_enviado,
     listar_logins_vencendo,
     marcar_aviso_vencimento_enviado,
+    listar_logins_vencidos,
+    marcar_vencimento_final_notificado,
+    listar_grupos_obrigatorios,
     listar_contas_usuario,
     consultar_login,
     produto_ja_alertou_estoque_baixo,
@@ -171,34 +174,62 @@ async def verificar_membro_grupo(
 
 async def mostrar_tela_entrar_grupo(
     update_or_query,
-    link,
+    links,
     e_callback=False,
 ):
-    texto = (
-        "🔒 *ENTRE NO NOSSO GRUPO PRIMEIRO*\n\n"
-        "Pra usar o bot, você precisa entrar "
-        "no nosso grupo/canal oficial.\n\n"
-        "1️⃣ Toque em \"Entrar no grupo\"\n"
-        "2️⃣ Depois volte aqui e toque em "
-        "\"✅ Já entrei\""
-    )
 
-    botoes = InlineKeyboardMarkup(
-        [
+    if isinstance(links, str):
+        links = [links]
+
+    if len(links) == 1:
+        texto = (
+            "🔒 *ENTRE NO NOSSO GRUPO PRIMEIRO*\n\n"
+            "Pra usar o bot, você precisa entrar "
+            "no nosso grupo/canal oficial.\n\n"
+            "1️⃣ Toque em \"Entrar no grupo\"\n"
+            "2️⃣ Depois volte aqui e toque em "
+            "\"✅ Já entrei\""
+        )
+    else:
+        texto = (
+            "🔒 *ENTRE NOS NOSSOS GRUPOS PRIMEIRO*\n\n"
+            "Pra usar o bot, você precisa entrar "
+            f"em todos os {len(links)} grupos/canais "
+            "abaixo.\n\n"
+            "1️⃣ Toque em cada botão abaixo\n"
+            "2️⃣ Depois volte aqui e toque em "
+            "\"✅ Já entrei\""
+        )
+
+    linhas_botoes = []
+
+    for indice, link in enumerate(links, start=1):
+
+        texto_botao = (
+            "👥 Entrar no grupo"
+            if len(links) == 1
+            else f"👥 Entrar no grupo {indice}"
+        )
+
+        linhas_botoes.append(
             [
                 InlineKeyboardButton(
-                    "👥 Entrar no grupo",
+                    texto_botao,
                     url=link,
                 )
-            ],
-            [
-                InlineKeyboardButton(
-                    "✅ Já entrei",
-                    callback_data="checkjoin",
-                )
-            ],
+            ]
+        )
+
+    linhas_botoes.append(
+        [
+            InlineKeyboardButton(
+                "✅ Já entrei",
+                callback_data="checkjoin",
+            )
         ]
     )
+
+    botoes = InlineKeyboardMarkup(linhas_botoes)
 
     if e_callback:
         await update_or_query.answer()
@@ -223,38 +254,33 @@ async def bloqueado_por_grupo_obrigatorio(
     user_id,
 ):
     """
-    Retorna o link do grupo se o usuário
-    precisa entrar e ainda não entrou.
-    Retorna None se está liberado.
+    Retorna a lista de links dos grupos/canais
+    obrigatórios que o usuário ainda não entrou.
+    Retorna lista vazia (falsy) se está liberado.
     """
 
     if eh_admin_principal(user_id):
-        return None
+        return []
 
-    grupo_id = obter_configuracao(
-        "grupo_obrigatorio_id"
-    )
+    grupos = listar_grupos_obrigatorios()
 
-    if not grupo_id:
-        return None
+    if not grupos:
+        return []
 
-    link = obter_configuracao(
-        "grupo_obrigatorio_link"
-    )
+    pendentes = []
 
-    if not link:
-        return None
+    for _registro_id, grupo_id, link in grupos:
 
-    membro = await verificar_membro_grupo(
-        bot,
-        grupo_id,
-        user_id,
-    )
+        membro = await verificar_membro_grupo(
+            bot,
+            grupo_id,
+            user_id,
+        )
 
-    if membro:
-        return None
+        if not membro:
+            pendentes.append(link)
 
-    return link
+    return pendentes
 
 
 # =========================================================
@@ -1858,6 +1884,127 @@ async def verificar_vencimentos_proximos(
             )
 
 
+# =========================================================
+# CONTA VENCIDA (PRAZO JÁ ATINGIDO) — AVISA CLIENTE E ADMIN
+# =========================================================
+
+async def verificar_contas_vencidas(
+    bot,
+):
+
+    contas = listar_logins_vencidos()
+
+    if not contas:
+        return
+
+    print(
+        f"⌛ {len(contas)} conta(s) com o prazo "
+        "encerrado."
+    )
+
+    for conta in contas:
+
+        try:
+            (
+                login_id,
+                usuario_id,
+                nome_cliente,
+                username_cliente,
+                produto_id,
+                nome_produto,
+                vendido_em,
+                duracao_dias,
+            ) = conta
+
+            username_texto = (
+                f"@{username_cliente}"
+                if username_cliente
+                else "Não informado"
+            )
+
+            # -----------------------------------------
+            # AVISO PARA O CLIENTE
+            # -----------------------------------------
+
+            try:
+                await bot.send_message(
+                    chat_id=usuario_id,
+                    text=(
+                        "⌛ *SEU PRAZO DE ACESSO "
+                        "ACABOU*\n\n"
+                        "━━━━━━━━━━━━━━━━━━\n"
+                        f"📦 *Produto:* {nome_produto}\n"
+                        f"📅 *Duração:* {duracao_dias} "
+                        "dias\n"
+                        "━━━━━━━━━━━━━━━━━━\n\n"
+                        "O período da sua conta chegou "
+                        "ao fim.\n\n"
+                        "⚠️ Se não for renovada, a "
+                        "senha poderá ser trocada e "
+                        "o acesso será encerrado.\n\n"
+                        "Clique abaixo para renovar "
+                        "agora e continuar com acesso."
+                    ),
+                    reply_markup=InlineKeyboardMarkup(
+                        [
+                            [
+                                InlineKeyboardButton(
+                                    "🔄 Renovar agora",
+                                    callback_data=(
+                                        "renovar_login_"
+                                        f"{login_id}"
+                                    ),
+                                )
+                            ]
+                        ]
+                    ),
+                    parse_mode="Markdown",
+                )
+            except Exception as erro_cliente:
+                print(
+                    "ERRO AO AVISAR CLIENTE "
+                    "(VENCIMENTO):",
+                    repr(erro_cliente),
+                )
+
+            # -----------------------------------------
+            # AVISO PARA O ADMIN
+            # -----------------------------------------
+
+            await bot.send_message(
+                chat_id=ADMIN_ID,
+                text=(
+                    "⌛ *PRAZO ENCERRADO — AÇÃO "
+                    "NECESSÁRIA*\n\n"
+                    "━━━━━━━━━━━━━━━━━━\n"
+                    f"📦 *Produto:* {nome_produto}\n"
+                    f"👤 *Cliente:* "
+                    f"{nome_cliente or 'Não informado'}\n"
+                    f"🔗 *Username:* {username_texto}\n"
+                    f"🆔 *ID do cliente:* `{usuario_id}`\n"
+                    f"🔐 *ID da conta:* `{login_id}`\n"
+                    f"📅 *Vendido em:* {vendido_em}\n"
+                    f"⏳ *Duração:* {duracao_dias} dias\n"
+                    "━━━━━━━━━━━━━━━━━━\n\n"
+                    "O cliente já foi avisado. Se ele "
+                    "não renovar, considere trocar a "
+                    "senha dessa conta."
+                ),
+                parse_mode="Markdown",
+            )
+
+            marcar_vencimento_final_notificado(
+                login_id
+            )
+
+        except Exception as erro:
+            print(
+                "ERRO AO PROCESSAR VENCIMENTO "
+                "FINAL:",
+                repr(erro),
+            )
+
+
 async def loop_verificador_vencimentos(
     application: Application,
 ):
@@ -1868,6 +2015,10 @@ async def loop_verificador_vencimentos(
     while True:
         try:
             await verificar_vencimentos_proximos(
+                application.bot
+            )
+
+            await verificar_contas_vencidas(
                 application.bot
             )
 
@@ -4745,6 +4896,40 @@ async def botoes(
                             url=(
                                 "https://t.me/"
                                 "PlayerStoreCodigosBot"
+                            ),
+                        )
+                    ],
+                    [
+                        InlineKeyboardButton(
+                            "⬅️ Voltar",
+                            callback_data="voltar_menu",
+                        )
+                    ],
+                ]
+            ),
+            parse_mode="Markdown",
+        )
+        return
+
+    # =====================================================
+    # ALUGAR BOT
+    # =====================================================
+
+    if acao == "alugar_bot":
+        await editar_ou_substituir(
+            query,
+            context,
+            "📣 *ALUGAR ESTE BOT*\n\n"
+            "Quer ter um bot igual a este pro seu "
+            "negócio? Fale comigo diretamente.",
+            reply_markup=InlineKeyboardMarkup(
+                [
+                    [
+                        InlineKeyboardButton(
+                            "💬 Falar com o responsável",
+                            url=(
+                                "https://t.me/"
+                                "PLAYERSTORE_OFICIAL"
                             ),
                         )
                     ],
