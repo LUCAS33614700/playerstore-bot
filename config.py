@@ -55,7 +55,7 @@ SUPORTE_USERNAME = os.getenv(
 
 GRUPO_CLIENTES = os.getenv(
     "GRUPO_CLIENTES",
-    "https://t.me/PLAYERSTORYREFERENCIA"
+    "https://t.me/PLAYERSTOREGRUPO"
 )
 
 
