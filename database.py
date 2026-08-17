@@ -321,6 +321,20 @@ def criar_tabelas():
         )
     """)
 
+    # -----------------------------------------------------
+    # MENSAGENS DO GRUPO DE ANÚNCIOS (LIMPEZA AUTOMÁTICA)
+    # -----------------------------------------------------
+
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS mensagens_grupo_anuncios (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            chat_id INTEGER NOT NULL,
+            message_id INTEGER NOT NULL,
+            criado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            apagada INTEGER DEFAULT 0
+        )
+    """)
+
     # Migração: quem já tinha um único grupo obrigatório
     # configurado (chave/valor antigo) tem ele importado
     # automaticamente pra nova tabela, uma única vez.
@@ -2822,3 +2836,79 @@ def remover_grupo_obrigatorio(
     conn.close()
 
     return removido
+
+
+# =========================================================
+# MENSAGENS DO GRUPO DE ANÚNCIOS (LIMPEZA AUTOMÁTICA)
+# =========================================================
+
+def registrar_mensagem_grupo_anuncios(
+    chat_id,
+    message_id,
+):
+
+    conn = conectar()
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        INSERT INTO mensagens_grupo_anuncios
+        (
+            chat_id,
+            message_id
+        )
+        VALUES (?, ?)
+    """, (
+        chat_id,
+        message_id,
+    ))
+
+    conn.commit()
+    conn.close()
+
+
+def listar_mensagens_grupo_para_apagar(
+    dias=3,
+):
+
+    conn = conectar()
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        SELECT
+            id,
+            chat_id,
+            message_id
+        FROM mensagens_grupo_anuncios
+        WHERE apagada = 0
+        AND datetime(
+            criado_em,
+            '+' || ? || ' days'
+        ) <= datetime('now')
+    """, (
+        dias,
+    ))
+
+    mensagens = cursor.fetchall()
+
+    conn.close()
+
+    return mensagens
+
+
+def marcar_mensagem_grupo_apagada(
+    registro_id,
+):
+
+    conn = conectar()
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        UPDATE mensagens_grupo_anuncios
+        SET apagada = 1
+        WHERE id = ?
+    """, (
+        registro_id,
+    ))
+
+    conn.commit()
+    conn.close()
