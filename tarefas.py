@@ -11,7 +11,7 @@ from telegram.ext import (
     ContextTypes,
 )
 
-from config import ADMIN_ID
+from config import ADMIN_ID, DATABASE_NAME
 
 from database import (
     listar_pagamentos_pendentes,
@@ -478,6 +478,32 @@ async def enviar_relatorio_vendas(
         )
 
 
+async def enviar_backup_automatico(
+    bot,
+):
+    import os
+
+    if not os.path.exists(DATABASE_NAME):
+        return
+
+    try:
+        with open(DATABASE_NAME, "rb") as arquivo:
+            await bot.send_document(
+                chat_id=ADMIN_ID,
+                document=arquivo,
+                filename="bot.db",
+                caption=(
+                    "💾 Backup automático diário do "
+                    "banco de dados."
+                ),
+            )
+    except Exception as erro:
+        log_erro(
+            "ERRO NO BACKUP AUTOMÁTICO:",
+            repr(erro),
+        )
+
+
 async def loop_relatorio_vendas(
     application: Application,
 ):
@@ -493,6 +519,10 @@ async def loop_relatorio_vendas(
 
         try:
             await enviar_relatorio_vendas(
+                application.bot
+            )
+
+            await enviar_backup_automatico(
                 application.bot
             )
 
@@ -564,6 +594,10 @@ async def iniciar_verificador(
                 BotCommand(
                     "id",
                     "Mostrar seu ID do Telegram",
+                ),
+                BotCommand(
+                    "backup",
+                    "Baixar backup do banco (admin)",
                 ),
             ]
         )
