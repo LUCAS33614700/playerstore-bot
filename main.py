@@ -2253,6 +2253,58 @@ async def comando_grupo_id(
 
 
 # =========================================================
+# COMANDO /backup (SÓ ADMIN) — MANDA O bot.db NO CHAT
+# =========================================================
+
+async def comando_backup(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+):
+
+    usuario = update.effective_user
+
+    if not usuario or not update.message:
+        return
+
+    if not eh_admin_principal(usuario.id):
+        return
+
+    from config import DATABASE_NAME
+    import os as _os
+
+    if not _os.path.exists(DATABASE_NAME):
+        await update.message.reply_text(
+            "❌ Arquivo do banco não encontrado "
+            f"em `{DATABASE_NAME}`.",
+            parse_mode="Markdown",
+        )
+        return
+
+    try:
+        with open(DATABASE_NAME, "rb") as arquivo:
+            await update.message.reply_document(
+                document=arquivo,
+                filename="bot.db",
+                caption=(
+                    "💾 *BACKUP DO BANCO DE DADOS*\n\n"
+                    "Guarde esse arquivo em local seguro. "
+                    "Pra restaurar, basta colocá-lo na "
+                    "pasta do bot com o mesmo nome "
+                    "(`bot.db`) antes de iniciar."
+                ),
+                parse_mode="Markdown",
+            )
+    except Exception as erro:
+        log_erro(
+            "ERRO AO ENVIAR BACKUP:",
+            repr(erro),
+        )
+        await update.message.reply_text(
+            "❌ Não foi possível enviar o backup."
+        )
+
+
+# =========================================================
 # RESPONDER SUPORTE DE DENTRO DO GRUPO (TÓPICOS)
 # =========================================================
 
@@ -4459,6 +4511,13 @@ def main():
         CommandHandler(
             "grupoid",
             comando_grupo_id,
+        )
+    )
+
+    application.add_handler(
+        CommandHandler(
+            "backup",
+            comando_backup,
         )
     )
 
