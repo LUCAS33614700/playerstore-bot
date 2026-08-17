@@ -1,4 +1,5 @@
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+from log import log_info
 from database import (
     conectar,
     listar_categorias,
@@ -113,7 +114,7 @@ def cadastrar_produtos_automaticamente():
                 ),
             )
 
-            print(
+            log_info(
                 f"✅ Produto cadastrado: "
                 f"{produto['nome']}"
             )
@@ -645,6 +646,6 @@ def inicializar_catalogo():
 
     cadastrar_produtos_automaticamente()
 
-    print(
+    log_info(
         "🛒 Catálogo inicializado."
     )
