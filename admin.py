@@ -37,6 +37,7 @@ from database import (
     adicionar_grupo_obrigatorio,
     listar_grupos_obrigatorios,
     remover_grupo_obrigatorio,
+    registrar_mensagem_grupo_anuncios,
 )
 
 
@@ -129,7 +130,7 @@ async def anunciar_abastecimento_grupo(
 
         me = await context.bot.get_me()
 
-        await context.bot.send_message(
+        mensagem_enviada = await context.bot.send_message(
             chat_id=grupo_id_int,
             text=(
                 "🎉 *ESTOQUE ABASTECIDO!* "
@@ -155,6 +156,11 @@ async def anunciar_abastecimento_grupo(
                 ]
             ),
             parse_mode="Markdown",
+        )
+
+        registrar_mensagem_grupo_anuncios(
+            grupo_id_int,
+            mensagem_enviada.message_id,
         )
 
     except Exception as erro:
@@ -1677,7 +1683,6 @@ async def processar_admin_texto(
         await update.message.reply_text(
             "👀 *PRÉVIA DA MENSAGEM*\n\n"
             "━━━━━━━━━━━━━━━━━━\n"
-            "📢 *NOVIDADE!*\n\n"
             f"{texto}\n"
             "━━━━━━━━━━━━━━━━━━\n\n"
             f"Vai ser enviada pra "
@@ -2627,10 +2632,7 @@ async def executar_broadcast(
         try:
             await context.bot.send_message(
                 chat_id=usuario_id,
-                text=(
-                    "📢 *NOVIDADE!*\n\n"
-                    f"{texto}"
-                ),
+                text=texto,
                 parse_mode="Markdown",
             )
             sucesso += 1
