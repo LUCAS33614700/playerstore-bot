@@ -308,6 +308,55 @@ def criar_tabelas():
         )
     """)
 
+    # -----------------------------------------------------
+    # GRUPOS/CANAIS OBRIGATÓRIOS (SUPORTA VÁRIOS)
+    # -----------------------------------------------------
+
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS grupos_obrigatorios (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            grupo_id INTEGER NOT NULL UNIQUE,
+            link TEXT NOT NULL,
+            criado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+
+    # Migração: quem já tinha um único grupo obrigatório
+    # configurado (chave/valor antigo) tem ele importado
+    # automaticamente pra nova tabela, uma única vez.
+
+    cursor.execute("""
+        SELECT COUNT(*) FROM grupos_obrigatorios
+    """)
+
+    if cursor.fetchone()[0] == 0:
+
+        cursor.execute("""
+            SELECT valor FROM configuracoes
+            WHERE chave = 'grupo_obrigatorio_id'
+        """)
+        antigo_id = cursor.fetchone()
+
+        cursor.execute("""
+            SELECT valor FROM configuracoes
+            WHERE chave = 'grupo_obrigatorio_link'
+        """)
+        antigo_link = cursor.fetchone()
+
+        if antigo_id and antigo_link:
+
+            try:
+                cursor.execute("""
+                    INSERT OR IGNORE INTO grupos_obrigatorios
+                    (grupo_id, link)
+                    VALUES (?, ?)
+                """, (
+                    int(antigo_id[0]),
+                    antigo_link[0],
+                ))
+            except (ValueError, TypeError):
+                pass
+
     conn.commit()
     conn.close()
 
@@ -833,6 +882,69 @@ def marcar_aviso_vencimento_enviado(
     cursor.execute("""
         UPDATE logins
         SET alerta_vencimento_enviado = 1
+        WHERE id = ?
+    """, (
+        login_id,
+    ))
+
+    conn.commit()
+    conn.close()
+
+
+# =========================================================
+# VENCIMENTO COMPLETO (CONTA JÁ ATINGIU A DURAÇÃO)
+# =========================================================
+# Diferente do aviso de "vencendo em até 24h" acima, esta
+# checagem dispara quando o prazo já foi atingido/ultrapassado
+# (vendido_em + duracao_dias <= hoje), para avisar cliente e
+# admin que o prazo acabou.
+
+def listar_logins_vencidos():
+
+    conn = conectar()
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        SELECT
+            l.id,
+            l.usuario_id,
+            u.nome,
+            u.username,
+            l.produto_id,
+            p.nome,
+            l.vendido_em,
+            p.duracao_dias
+        FROM logins l
+        INNER JOIN produtos p
+            ON p.id = l.produto_id
+        LEFT JOIN usuarios u
+            ON u.id = l.usuario_id
+        WHERE l.status = 'vendido'
+        AND l.aviso_vencimento_enviado = 0
+        AND p.duracao_dias IS NOT NULL
+        AND date(
+            l.vendido_em,
+            '+' || p.duracao_dias || ' days'
+        ) <= date('now')
+    """)
+
+    resultados = cursor.fetchall()
+
+    conn.close()
+
+    return resultados
+
+
+def marcar_vencimento_final_notificado(
+    login_id,
+):
+
+    conn = conectar()
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        UPDATE logins
+        SET aviso_vencimento_enviado = 1
         WHERE id = ?
     """, (
         login_id,
@@ -2637,3 +2749,76 @@ def listar_pagamentos_usuario(
     conn.close()
 
     return pagamentos
+
+
+# =========================================================
+# GRUPOS/CANAIS OBRIGATÓRIOS
+# =========================================================
+
+def adicionar_grupo_obrigatorio(
+    grupo_id,
+    link,
+):
+
+    conn = conectar()
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        INSERT INTO grupos_obrigatorios
+        (
+            grupo_id,
+            link
+        )
+        VALUES (?, ?)
+        ON CONFLICT(grupo_id)
+        DO UPDATE SET link = excluded.link
+    """, (
+        int(grupo_id),
+        link,
+    ))
+
+    conn.commit()
+    conn.close()
+
+
+def listar_grupos_obrigatorios():
+
+    conn = conectar()
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        SELECT
+            id,
+            grupo_id,
+            link
+        FROM grupos_obrigatorios
+        ORDER BY id
+    """)
+
+    grupos = cursor.fetchall()
+
+    conn.close()
+
+    return grupos
+
+
+def remover_grupo_obrigatorio(
+    registro_id,
+):
+
+    conn = conectar()
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        DELETE FROM grupos_obrigatorios
+        WHERE id = ?
+    """, (
+        registro_id,
+    ))
+
+    removido = cursor.rowcount > 0
+
+    conn.commit()
+    conn.close()
+
+    return removido
