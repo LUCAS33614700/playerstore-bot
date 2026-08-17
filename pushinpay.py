@@ -1,6 +1,8 @@
 import os
 import requests
 
+from log import log_info
+
 
 # =========================================================
 # CONFIGURAÇÃO
@@ -76,7 +78,7 @@ def criar_pix(
         timeout=30,
     )
 
-    print(
+    log_info(
         "PUSHINPAY CRIAR PIX:",
         resposta.status_code,
         resposta.text,
@@ -121,7 +123,7 @@ def consultar_pix(
         timeout=30,
     )
 
-    print(
+    log_info(
         "PUSHINPAY CONSULTAR PIX:",
         resposta.status_code,
         resposta.text,
