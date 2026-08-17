@@ -8,7 +8,25 @@ from config import DATABASE_NAME
 # =========================================================
 
 def conectar():
-    return sqlite3.connect(DATABASE_NAME)
+    conn = sqlite3.connect(
+        DATABASE_NAME,
+        timeout=30,
+    )
+
+    # WAL permite leituras e escritas concorrentes sem
+    # travar o banco inteiro (evita "database is locked"
+    # quando várias partes do bot mexem no SQLite ao
+    # mesmo tempo).
+    conn.execute("PRAGMA journal_mode=WAL")
+
+    # Se duas conexões tentarem escrever ao mesmo tempo,
+    # espera até 30s antes de falhar em vez de estourar
+    # "database is locked" na hora.
+    conn.execute("PRAGMA busy_timeout=30000")
+
+    conn.execute("PRAGMA foreign_keys=ON")
+
+    return conn
 
 
 # =========================================================
@@ -370,6 +388,73 @@ def criar_tabelas():
                 ))
             except (ValueError, TypeError):
                 pass
+
+    # -----------------------------------------------------
+    # ÍNDICES
+    # -----------------------------------------------------
+    # Colunas usadas com frequência em WHERE/JOIN. Sem
+    # índice o SQLite varre a tabela inteira toda vez —
+    # não dói com poucas linhas, mas cresce junto com o
+    # catálogo, os pedidos e os pagamentos.
+
+    indices = [
+        (
+            "idx_logins_produto_status",
+            "logins",
+            "produto_id, status",
+        ),
+        (
+            "idx_logins_usuario",
+            "logins",
+            "usuario_id",
+        ),
+        (
+            "idx_pedidos_usuario",
+            "pedidos",
+            "usuario_id",
+        ),
+        (
+            "idx_pedidos_produto",
+            "pedidos",
+            "produto_id",
+        ),
+        (
+            "idx_pagamentos_usuario",
+            "pagamentos",
+            "usuario_id",
+        ),
+        (
+            "idx_pagamentos_status",
+            "pagamentos",
+            "status",
+        ),
+        (
+            "idx_carrinho_usuario",
+            "carrinho_itens",
+            "usuario_id",
+        ),
+        (
+            "idx_produto_categorias_categoria",
+            "produto_categorias",
+            "categoria_id",
+        ),
+        (
+            "idx_avisos_reposicao_produto",
+            "avisos_reposicao",
+            "produto_id",
+        ),
+        (
+            "idx_mensagens_grupo_apagada",
+            "mensagens_grupo_anuncios",
+            "apagada",
+        ),
+    ]
+
+    for nome_indice, tabela, colunas in indices:
+        cursor.execute(f"""
+            CREATE INDEX IF NOT EXISTS {nome_indice}
+            ON {tabela} ({colunas})
+        """)
 
     conn.commit()
     conn.close()
