@@ -5,6 +5,8 @@ import binascii
 import io
 from datetime import datetime, timedelta
 
+from log import log_info, log_erro
+
 from telegram import (
     Update,
     InlineKeyboardButton,
@@ -163,7 +165,7 @@ async def verificar_membro_grupo(
         )
 
     except Exception as erro:
-        print(
+        log_erro(
             "ERRO AO VERIFICAR MEMBRO DO GRUPO "
             "(permitindo acesso por segurança):",
             repr(erro),
@@ -355,7 +357,7 @@ async def verificar_estoque_baixo(
         )
 
     except Exception as erro:
-        print(
+        log_erro(
             "ERRO NO ALERTA DE ESTOQUE BAIXO:",
             repr(erro),
         )
@@ -424,7 +426,7 @@ async def anunciar_venda_grupo(
         )
 
     except Exception as erro:
-        print(
+        log_erro(
             "ERRO AO ANUNCIAR VENDA:",
             repr(erro),
         )
@@ -478,7 +480,7 @@ async def anunciar_esgotado_grupo(
         )
 
     except Exception as erro:
-        print(
+        log_erro(
             "ERRO AO ANUNCIAR ESGOTAMENTO:",
             repr(erro),
         )
@@ -522,7 +524,7 @@ async def enviar_menu_principal(
                 )
             return
         except Exception as erro:
-            print(
+            log_erro(
                 "ERRO AO ENVIAR BANNER DO MENU:",
                 repr(erro),
             )
@@ -605,7 +607,7 @@ async def enviar_lembrete_compra(
         )
 
     except Exception as erro:
-        print(
+        log_erro(
             "ERRO NO LEMBRETE DE COMPRA:",
             repr(erro),
         )
@@ -751,7 +753,7 @@ async def comprar_produto(
         estoque_logins = int(cursor.fetchone()[0])
     except Exception as erro:
         conn.close()
-        print("ERRO AO CONSULTAR ESTOQUE DE LOGINS:", repr(erro))
+        log_erro("ERRO AO CONSULTAR ESTOQUE DE LOGINS:", repr(erro))
         await query.answer(
             "❌ Não foi possível consultar o estoque.",
             show_alert=True,
@@ -879,7 +881,7 @@ async def comprar_produto(
 
         adicionar_saldo(usuario_id, valor_total)
 
-        print("ERRO AO REGISTRAR COMPRA:", repr(erro))
+        log_erro("ERRO AO REGISTRAR COMPRA:", repr(erro))
 
         await query.answer(
             "❌ Erro ao finalizar a compra.",
@@ -906,7 +908,7 @@ async def comprar_produto(
             contas_entregues.append(login["dados"])
 
     except Exception as erro:
-        print("ERRO NA ENTREGA:", repr(erro))
+        log_erro("ERRO NA ENTREGA:", repr(erro))
 
         adicionar_saldo(usuario_id, valor_total)
 
@@ -924,7 +926,7 @@ async def comprar_produto(
             conn.commit()
             conn.close()
         except Exception as erro_db:
-            print("ERRO AO CANCELAR PEDIDO:", repr(erro_db))
+            log_erro("ERRO AO CANCELAR PEDIDO:", repr(erro_db))
 
         await editar_ou_substituir(
             query,
@@ -1061,7 +1063,7 @@ async def pedir_quantidade_produto(
         )
         estoque_real = int(cursor.fetchone()[0])
     except Exception as erro:
-        print("ERRO AO CONSULTAR ESTOQUE:", repr(erro))
+        log_erro("ERRO AO CONSULTAR ESTOQUE:", repr(erro))
         estoque_real = estoque
     finally:
         conn.close()
@@ -1175,7 +1177,7 @@ async def processar_quantidade_produto(
         )
         estoque_logins = int(cursor.fetchone()[0])
     except Exception as erro:
-        print("ERRO AO CONSULTAR ESTOQUE:", repr(erro))
+        log_erro("ERRO AO CONSULTAR ESTOQUE:", repr(erro))
         estoque_logins = 0
     finally:
         conn.close()
@@ -1324,7 +1326,7 @@ def converter_qr_code_base64(qr_code_base64):
         TypeError,
         binascii.Error,
     ):
-        print("QR Code Base64 inválido.")
+        log_info("QR Code Base64 inválido.")
         return None
 
 
@@ -1475,7 +1477,7 @@ async def processar_valor_saldo(
             )
 
     except Exception as erro:
-        print("ERRO AO GERAR PIX:", repr(erro))
+        log_erro("ERRO AO GERAR PIX:", repr(erro))
 
         try:
             await mensagem.edit_text(
@@ -1518,7 +1520,7 @@ async def processar_midia_generico(
         if tratado_admin:
             return
     except Exception as erro:
-        print(
+        log_erro(
             "ERRO NO PROCESSAMENTO DE MÍDIA ADMIN:",
             repr(erro),
         )
@@ -1560,7 +1562,7 @@ async def processar_mensagem_texto(
         ):
             return
     except Exception as erro:
-        print("ERRO NO PROCESSAMENTO ADMIN:", repr(erro))
+        log_erro("ERRO NO PROCESSAMENTO ADMIN:", repr(erro))
 
     if context.user_data.get("aguardando_quantidade"):
         await processar_quantidade_produto(
@@ -1633,7 +1635,7 @@ async def verificar_pagamento(
             transacao.get("status", "")
         ).lower()
 
-        print(
+        log_info(
             f"Pagamento {transacao_id}: {status}"
         )
 
@@ -1697,7 +1699,7 @@ async def verificar_pagamento(
         )
 
     except Exception as erro:
-        print(
+        log_erro(
             "ERRO AO CONSULTAR PAGAMENTO:",
             repr(erro),
         )
@@ -1724,7 +1726,7 @@ async def verificar_pagamentos_automaticamente(
     if not pagamentos:
         return
 
-    print(
+    log_info(
         f"🔎 Verificando {len(pagamentos)} pagamento(s)..."
     )
 
@@ -1748,7 +1750,7 @@ async def verificar_pagamentos_automaticamente(
                 transacao.get("status", "")
             ).lower()
 
-            print(
+            log_info(
                 f"PIX {transacao_id}: {status}"
             )
 
@@ -1780,7 +1782,7 @@ async def verificar_pagamentos_automaticamente(
                         parse_mode="Markdown",
                     )
                 except Exception as erro_envio:
-                    print(
+                    log_erro(
                         "ERRO AO ENVIAR CONFIRMAÇÃO:",
                         repr(erro_envio),
                     )
@@ -1811,7 +1813,7 @@ async def verificar_pagamentos_automaticamente(
                             parse_mode="Markdown",
                         )
                     except Exception as erro_envio:
-                        print(
+                        log_erro(
                             "ERRO AO ENVIAR CANCELAMENTO:",
                             repr(erro_envio),
                         )
@@ -1822,7 +1824,7 @@ async def verificar_pagamentos_automaticamente(
             except Exception:
                 pix_id = "desconhecido"
 
-            print(
+            log_erro(
                 f"ERRO NA VERIFICAÇÃO DO PIX {pix_id}:",
                 repr(erro),
             )
@@ -1841,7 +1843,7 @@ async def verificar_vencimentos_proximos(
     if not contas:
         return
 
-    print(
+    log_info(
         f"⏳ {len(contas)} conta(s) vencendo em "
         "até 24h."
     )
@@ -1891,7 +1893,7 @@ async def verificar_vencimentos_proximos(
             )
 
         except Exception as erro:
-            print(
+            log_erro(
                 "ERRO AO AVISAR VENCIMENTO:",
                 repr(erro),
             )
@@ -1910,7 +1912,7 @@ async def verificar_contas_vencidas(
     if not contas:
         return
 
-    print(
+    log_info(
         f"⌛ {len(contas)} conta(s) com o prazo "
         "encerrado."
     )
@@ -1974,7 +1976,7 @@ async def verificar_contas_vencidas(
                     parse_mode="Markdown",
                 )
             except Exception as erro_cliente:
-                print(
+                log_erro(
                     "ERRO AO AVISAR CLIENTE "
                     "(VENCIMENTO):",
                     repr(erro_cliente),
@@ -2011,7 +2013,7 @@ async def verificar_contas_vencidas(
             )
 
         except Exception as erro:
-            print(
+            log_erro(
                 "ERRO AO PROCESSAR VENCIMENTO "
                 "FINAL:",
                 repr(erro),
@@ -2029,7 +2031,7 @@ async def apagar_mensagens_antigas_grupo(
     if not mensagens:
         return
 
-    print(
+    log_info(
         f"🧹 Apagando {len(mensagens)} "
         "mensagem(ns) antiga(s) do grupo."
     )
@@ -2042,7 +2044,7 @@ async def apagar_mensagens_antigas_grupo(
                 message_id=message_id,
             )
         except Exception as erro:
-            print(
+            log_erro(
                 "ERRO AO APAGAR MENSAGEM DO "
                 "GRUPO:",
                 repr(erro),
@@ -2056,7 +2058,7 @@ async def apagar_mensagens_antigas_grupo(
 async def loop_verificador_vencimentos(
     application: Application,
 ):
-    print(
+    log_info(
         "⏳ Verificador de vencimentos iniciado."
     )
 
@@ -2075,14 +2077,14 @@ async def loop_verificador_vencimentos(
             )
 
         except asyncio.CancelledError:
-            print(
+            log_info(
                 "⏳ Verificador de vencimentos "
                 "encerrado."
             )
             raise
 
         except Exception as erro:
-            print(
+            log_erro(
                 "ERRO NO LOOP DE VENCIMENTOS:",
                 repr(erro),
             )
@@ -2129,7 +2131,7 @@ async def enviar_relatorio_vendas(
         )
 
     except Exception as erro:
-        print(
+        log_erro(
             "ERRO NO RELATÓRIO DE VENDAS:",
             repr(erro),
         )
@@ -2138,7 +2140,7 @@ async def enviar_relatorio_vendas(
 async def loop_relatorio_vendas(
     application: Application,
 ):
-    print(
+    log_info(
         "📊 Relatório automático de vendas iniciado."
     )
 
@@ -2154,14 +2156,14 @@ async def loop_relatorio_vendas(
             )
 
         except asyncio.CancelledError:
-            print(
+            log_info(
                 "📊 Relatório automático de "
                 "vendas encerrado."
             )
             raise
 
         except Exception as erro:
-            print(
+            log_erro(
                 "ERRO NO LOOP DE RELATÓRIO:",
                 repr(erro),
             )
@@ -2170,7 +2172,7 @@ async def loop_relatorio_vendas(
 async def loop_verificador_pagamentos(
     application: Application,
 ):
-    print("💳 Verificador automático de PIX iniciado.")
+    log_info("💳 Verificador automático de PIX iniciado.")
 
     while True:
         try:
@@ -2186,11 +2188,11 @@ async def loop_verificador_pagamentos(
             )
 
         except asyncio.CancelledError:
-            print("💳 Verificador automático encerrado.")
+            log_info("💳 Verificador automático encerrado.")
             raise
 
         except Exception as erro:
-            print(
+            log_erro(
                 "ERRO NO LOOP DO VERIFICADOR:",
                 repr(erro),
             )
@@ -2225,7 +2227,7 @@ async def iniciar_verificador(
             ]
         )
     except Exception as erro:
-        print(
+        log_erro(
             "ERRO AO REGISTRAR COMANDOS:",
             repr(erro),
         )
@@ -2526,7 +2528,7 @@ async def pesquisa_inline(
             is_personal=True,
         )
     except Exception as erro:
-        print(
+        log_erro(
             "ERRO NA BUSCA INLINE:",
             repr(erro),
         )
@@ -2682,7 +2684,7 @@ async def processar_suporte(
                 return True
 
             except Exception as erro:
-                print(
+                log_erro(
                     "ERRO NO GRUPO DE SUPORTE COM "
                     "TÓPICOS:",
                     repr(erro),
@@ -2719,7 +2721,7 @@ async def processar_suporte(
         )
 
     except Exception as erro:
-        print(
+        log_erro(
             "ERRO AO ENCAMINHAR TICKET DE SUPORTE:",
             repr(erro),
         )
@@ -2917,7 +2919,7 @@ async def responder_suporte_topico(
             return
 
     except Exception as erro:
-        print(
+        log_erro(
             "ERRO AO RESPONDER TICKET (TÓPICO):",
             repr(erro),
         )
@@ -3013,7 +3015,7 @@ async def responder_suporte_admin(
         )
 
     except Exception as erro:
-        print(
+        log_erro(
             "ERRO AO RESPONDER TICKET DE SUPORTE:",
             repr(erro),
         )
@@ -3723,7 +3725,7 @@ async def finalizar_compra_carrinho(
             conn.close()
 
         except Exception as erro:
-            print(
+            log_erro(
                 "ERRO AO REGISTRAR PEDIDO DO CARRINHO:",
                 repr(erro),
             )
@@ -4036,7 +4038,7 @@ async def botoes(
                 context,
             )
         except Exception as erro:
-            print("ERRO NO PAINEL ADMIN:", repr(erro))
+            log_erro("ERRO NO PAINEL ADMIN:", repr(erro))
             try:
                 await query.answer(
                     "❌ Erro no painel administrativo.",
@@ -4268,7 +4270,7 @@ async def botoes(
                     )
                 return
             except Exception as erro:
-                print(
+                log_erro(
                     "ERRO AO ENVIAR IMAGEM DO CATÁLOGO:",
                     repr(erro),
                 )
@@ -4374,7 +4376,7 @@ async def botoes(
             )
             estoque_real = int(cursor.fetchone()[0])
         except Exception as erro:
-            print("ERRO AO CONSULTAR ESTOQUE:", repr(erro))
+            log_erro("ERRO AO CONSULTAR ESTOQUE:", repr(erro))
             estoque_real = 0
         finally:
             conn.close()
@@ -5015,8 +5017,8 @@ async def erro_global(
     update: object,
     context: ContextTypes.DEFAULT_TYPE,
 ):
-    print("❌ ERRO GLOBAL:")
-    print(repr(context.error))
+    log_erro("❌ ERRO GLOBAL:")
+    log_info(repr(context.error))
 
 
 # =========================================================
@@ -5117,9 +5119,9 @@ def main():
         erro_global
     )
 
-    print("🤖 PLAYER STORE iniciado!")
-    print("👑 Painel ADM: /admin")
-    print(
+    log_info("🤖 PLAYER STORE iniciado!")
+    log_info("👑 Painel ADM: /admin")
+    log_info(
         "💳 Verificador PIX: asyncio "
         f"(intervalo de {INTERVALO_VERIFICACAO}s)"
     )
