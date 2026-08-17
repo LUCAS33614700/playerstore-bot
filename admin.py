@@ -1,5 +1,7 @@
 from urllib.parse import urlparse
 
+from log import log_erro
+
 from telegram import (
     Update,
     InlineKeyboardButton,
@@ -85,7 +87,7 @@ async def notificar_reposicao_estoque(
                     parse_mode="Markdown",
                 )
             except Exception as erro_envio:
-                print(
+                log_erro(
                     "ERRO AO AVISAR REPOSIÇÃO "
                     "(usuário):",
                     repr(erro_envio),
@@ -96,7 +98,7 @@ async def notificar_reposicao_estoque(
         )
 
     except Exception as erro:
-        print(
+        log_erro(
             "ERRO AO NOTIFICAR REPOSIÇÃO:",
             repr(erro),
         )
@@ -164,7 +166,7 @@ async def anunciar_abastecimento_grupo(
         )
 
     except Exception as erro:
-        print(
+        log_erro(
             "ERRO AO ANUNCIAR ABASTECIMENTO:",
             repr(erro),
         )
