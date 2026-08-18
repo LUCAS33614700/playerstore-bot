@@ -744,22 +744,20 @@ async def iniciar_adicionar_conta(
     nome = produto[1]
 
     await query.edit_message_text(
-        "➕ *ADICIONAR CONTA(S) AO ESTOQUE*\n\n"
+        "➕ *ADICIONAR CONTA AO ESTOQUE*\n\n"
         f"📦 *Produto:* {nome}\n\n"
-        "Envie agora os dados da conta.\n\n"
-        "Para uma única conta, envie, por exemplo:\n\n"
+        "Envie agora os dados da conta "
+        "(pode incluir descrição, regras "
+        "etc — tudo vira 1 conta só).\n\n"
+        "Exemplo:\n\n"
         "`email@gmail.com:senha123`\n\n"
         "Ou:\n\n"
         "`Email: email@gmail.com`\n"
         "`Senha: senha123`\n"
         "`PIN: 1234`\n\n"
-        "📋 *Para várias contas de uma vez,* "
-        "envie uma por linha, por exemplo:\n\n"
-        "`email1@gmail.com:senha1`\n"
-        "`email2@gmail.com:senha2`\n"
-        "`email3@gmail.com:senha3`\n\n"
-        "Cada linha vira uma conta separada no "
-        "estoque.\n\n"
+        "Pra adicionar outra conta depois, "
+        "use o botão \"ADICIONAR OUTRA\" ao "
+        "final.\n\n"
         "⬅️ Para cancelar, clique no botão abaixo.",
         reply_markup=InlineKeyboardMarkup(
             [
@@ -780,77 +778,14 @@ async def iniciar_adicionar_conta(
 # =========================================================
 # DIVIDIR TEXTO EM VÁRIAS CONTAS
 # =========================================================
-# Regras:
-# - Blocos separados por linha em branco -> cada bloco é
-#   uma conta, MAS só quando TODOS os blocos têm rótulo de
-#   credencial (Email:, Senha:, PIN:...). Isso evita que um
-#   texto de conta única com descrição/regras em parágrafos
-#   separados seja quebrado em várias contas falsas.
-# - Sem linha em branco, mas com várias linhas onde nenhuma
-#   usa rótulos (Email:, Senha:, PIN:...) -> cada linha é
-#   uma conta (formato simples "usuario:senha" por linha).
-# - Qualquer outro caso -> o texto inteiro é uma única conta.
-
-ROTULOS_CAMPO_UNICO = (
-    "email:",
-    "e-mail:",
-    "usuário:",
-    "usuario:",
-    "user:",
-    "login:",
-    "senha:",
-    "password:",
-    "pin:",
-)
-
+# Simplificado a pedido: cada mensagem enviada no fluxo de
+# "adicionar conta" vira SEMPRE 1 conta só, com o texto
+# inteiro (linhas em branco, descrição, regras etc. incluso).
+# Isso evita qualquer ambiguidade de separação. O cadastro em
+# lote (várias contas numa mensagem só) fica desativado — pra
+# adicionar várias contas, use "ADICIONAR OUTRA" uma de cada vez.
 
 def dividir_contas_do_texto(texto):
-
-    blocos = [
-        bloco.strip()
-        for bloco in texto.split("\n\n")
-        if bloco.strip()
-    ]
-
-    def bloco_tem_credencial(bloco):
-
-        linhas_bloco = [
-            linha.strip().lower()
-            for linha in bloco.split("\n")
-            if linha.strip()
-        ]
-
-        return any(
-            linha.startswith(
-                ROTULOS_CAMPO_UNICO
-            )
-            for linha in linhas_bloco
-        )
-
-    if len(blocos) > 1 and all(
-        bloco_tem_credencial(bloco)
-        for bloco in blocos
-    ):
-        return blocos
-
-    linhas = [
-        linha.strip()
-        for linha in texto.split("\n")
-        if linha.strip()
-    ]
-
-    todas_linhas_simples = (
-        len(linhas) > 1
-        and all(
-            not linha.lower().startswith(
-                ROTULOS_CAMPO_UNICO
-            )
-            for linha in linhas
-        )
-    )
-
-    if todas_linhas_simples:
-        return linhas
 
     return [texto.strip()]
 
