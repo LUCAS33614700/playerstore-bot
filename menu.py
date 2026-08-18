@@ -51,6 +51,14 @@ def menu_principal():
             )
         ],
 
+        # ENCOMENDA (PRÉ-VENDA)
+        [
+            InlineKeyboardButton(
+                "📝 NÃO ACHOU? FAÇA UMA ENCOMENDA",
+                callback_data="fazer_encomenda"
+            )
+        ],
+
         # RENOVAR
         [
             InlineKeyboardButton(
