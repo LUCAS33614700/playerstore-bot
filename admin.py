@@ -1,5 +1,7 @@
 from urllib.parse import urlparse
 
+import asyncio
+
 from log import log_erro
 
 from telegram import (
@@ -9,6 +11,7 @@ from telegram import (
 )
 
 from telegram.ext import ContextTypes
+from telegram.error import RetryAfter, Forbidden, TelegramError
 
 from config import ADMIN_ID
 
@@ -3091,6 +3094,43 @@ async def iniciar_broadcast(
     )
 
 
+async def _enviar_broadcast_um(
+    context,
+    usuario_id,
+    texto,
+):
+    """Manda a mensagem de broadcast pra um único usuário,
+    tratando corretamente o limite de envio do Telegram
+    (RetryAfter) e usuários que bloquearam o bot (Forbidden).
+    Retorna True em caso de sucesso, False em falha."""
+
+    for tentativa in range(2):
+
+        try:
+            await context.bot.send_message(
+                chat_id=usuario_id,
+                text=texto,
+                parse_mode="Markdown",
+            )
+            return True
+
+        except RetryAfter as erro:
+            # Telegram pediu pra esperar X segundos antes
+            # de tentar de novo — espera e tenta 1x a mais.
+            await asyncio.sleep(erro.retry_after + 0.5)
+            continue
+
+        except Forbidden:
+            # Usuário bloqueou o bot ou saiu — não é um
+            # erro transitório, não adianta tentar de novo.
+            return False
+
+        except TelegramError:
+            return False
+
+    return False
+
+
 async def executar_broadcast(
     query,
     context,
@@ -3114,21 +3154,39 @@ async def executar_broadcast(
 
     usuarios = listar_todos_usuarios()
 
+    # Manda em lotes paralelos pra ser rápido com muitos
+    # clientes, mas sem estourar o limite de envio do
+    # Telegram (~30 mensagens/segundo). 20 por lote com uma
+    # pequena pausa entre lotes fica dentro de uma margem
+    # segura mesmo com milhares de usuários cadastrados.
+    TAMANHO_LOTE = 20
+    PAUSA_ENTRE_LOTES = 1.0
+
     sucesso = 0
     falha = 0
 
-    for usuario_id in usuarios:
+    for inicio in range(0, len(usuarios), TAMANHO_LOTE):
 
-        try:
-            await context.bot.send_message(
-                chat_id=usuario_id,
-                text=texto,
-                parse_mode="Markdown",
-            )
-            sucesso += 1
+        lote = usuarios[inicio: inicio + TAMANHO_LOTE]
 
-        except Exception:
-            falha += 1
+        resultados = await asyncio.gather(
+            *(
+                _enviar_broadcast_um(
+                    context, usuario_id, texto
+                )
+                for usuario_id in lote
+            ),
+            return_exceptions=True,
+        )
+
+        for resultado in resultados:
+            if resultado is True:
+                sucesso += 1
+            else:
+                falha += 1
+
+        if inicio + TAMANHO_LOTE < len(usuarios):
+            await asyncio.sleep(PAUSA_ENTRE_LOTES)
 
     context.user_data.pop(
         "broadcast_texto", None
