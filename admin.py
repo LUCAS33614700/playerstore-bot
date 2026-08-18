@@ -744,20 +744,28 @@ async def iniciar_adicionar_conta(
     nome = produto[1]
 
     await query.edit_message_text(
-        "➕ *ADICIONAR CONTA AO ESTOQUE*\n\n"
+        "➕ *ADICIONAR CONTA(S) AO ESTOQUE*\n\n"
         f"📦 *Produto:* {nome}\n\n"
-        "Envie agora os dados da conta "
+        "Envie os dados da conta "
         "(pode incluir descrição, regras "
-        "etc — tudo vira 1 conta só).\n\n"
+        "etc, sem problema).\n\n"
         "Exemplo:\n\n"
         "`email@gmail.com:senha123`\n\n"
         "Ou:\n\n"
         "`Email: email@gmail.com`\n"
         "`Senha: senha123`\n"
         "`PIN: 1234`\n\n"
-        "Pra adicionar outra conta depois, "
-        "use o botão \"ADICIONAR OUTRA\" ao "
-        "final.\n\n"
+        "📋 *Pra adicionar várias contas de "
+        "uma vez,* separe cada conta com uma "
+        "linha contendo só `---`, por exemplo:\n\n"
+        "`Email: a@gmail.com`\n"
+        "`Senha: 123`\n"
+        "`---`\n"
+        "`Email: b@gmail.com`\n"
+        "`Senha: 456`\n\n"
+        "Sem o `---`, a mensagem inteira vira "
+        "1 conta só, mesmo com várias linhas "
+        "ou parágrafos.\n\n"
         "⬅️ Para cancelar, clique no botão abaixo.",
         reply_markup=InlineKeyboardMarkup(
             [
@@ -778,16 +786,45 @@ async def iniciar_adicionar_conta(
 # =========================================================
 # DIVIDIR TEXTO EM VÁRIAS CONTAS
 # =========================================================
-# Simplificado a pedido: cada mensagem enviada no fluxo de
-# "adicionar conta" vira SEMPRE 1 conta só, com o texto
-# inteiro (linhas em branco, descrição, regras etc. incluso).
-# Isso evita qualquer ambiguidade de separação. O cadastro em
-# lote (várias contas numa mensagem só) fica desativado — pra
-# adicionar várias contas, use "ADICIONAR OUTRA" uma de cada vez.
+# Cada conta pode ter texto livre (descrição, regras, PIN
+# etc, com linhas em branco à vontade). Pra adicionar mais de
+# uma conta na mesma mensagem, separe cada conta com uma
+# linha contendo só "---". Sem esse separador, a mensagem
+# inteira vira 1 conta só — não há ambiguidade nem heurística:
+# só divide onde você mesmo marcar.
+
+SEPARADOR_CONTAS = "---"
+
 
 def dividir_contas_do_texto(texto):
 
-    return [texto.strip()]
+    linhas = texto.split("\n")
+
+    blocos = []
+    bloco_atual = []
+
+    for linha in linhas:
+
+        if linha.strip() == SEPARADOR_CONTAS:
+
+            blocos.append(
+                "\n".join(bloco_atual).strip()
+            )
+            bloco_atual = []
+
+        else:
+
+            bloco_atual.append(linha)
+
+    blocos.append(
+        "\n".join(bloco_atual).strip()
+    )
+
+    return [
+        bloco
+        for bloco in blocos
+        if bloco
+    ]
 
 
 # =========================================================
