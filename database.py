@@ -1348,7 +1348,7 @@ def adicionar_saldo(
 
     cursor.execute("""
         UPDATE usuarios
-        SET saldo = saldo + ?
+        SET saldo = ROUND(saldo + ?, 2)
         WHERE id = ?
     """, (
         float(valor),
@@ -1377,7 +1377,7 @@ def retirar_saldo(
 
     cursor.execute("""
         UPDATE usuarios
-        SET saldo = saldo - ?
+        SET saldo = ROUND(saldo - ?, 2)
         WHERE id = ?
         AND (saldo + COALESCE(limite_credito, 0)) >= ?
     """, (
@@ -2517,7 +2517,7 @@ def processar_compra_login(
 
         cursor.execute("""
             UPDATE usuarios
-            SET saldo = saldo - ?
+            SET saldo = ROUND(saldo - ?, 2)
             WHERE id = ?
             AND saldo >= ?
         """, (
@@ -2872,7 +2872,7 @@ def processar_pagamento_pago(
 
         cursor.execute("""
             UPDATE usuarios
-            SET saldo = saldo + ?
+            SET saldo = ROUND(saldo + ?, 2)
             WHERE id = ?
         """, (
             valor,
