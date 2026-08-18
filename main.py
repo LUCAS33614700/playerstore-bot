@@ -4924,6 +4924,7 @@ def main():
     application = (
         Application.builder()
         .token(BOT_TOKEN)
+        .concurrent_updates(True)
         .post_init(iniciar_verificador)
         .post_shutdown(parar_verificador)
         .build()
