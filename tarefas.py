@@ -59,6 +59,109 @@ INTERVALO_VERIFICACAO_VENCIMENTOS = 60 * 60
 # Isso evita crash quando o pacote job-queue não está instalado
 # no Railway. O verificador roda em uma task asyncio própria.
 
+async def _verificar_um_pagamento(
+    context: ContextTypes.DEFAULT_TYPE,
+    pagamento,
+):
+    try:
+        (
+            pagamento_id,
+            usuario_id,
+            valor,
+            transacao_id,
+            status_banco,
+            criado_em,
+        ) = pagamento
+
+        transacao = await asyncio.to_thread(
+            consultar_pix,
+            transacao_id,
+        )
+
+        status = str(
+            transacao.get("status", "")
+        ).lower()
+
+        log_info(
+            f"PIX {transacao_id}: {status}"
+        )
+
+        if status == "paid":
+            resultado = processar_pagamento_pago(
+                transacao_id
+            )
+
+            if not resultado:
+                return
+
+            novo_saldo = consultar_saldo(
+                usuario_id
+            )
+
+            try:
+                await context.bot.send_message(
+                    chat_id=usuario_id,
+                    text=(
+                        "✅ *PAGAMENTO APROVADO!*\n\n"
+                        "━━━━━━━━━━━━━━━━━━\n"
+                        f"💰 Valor: R$ {float(valor):.2f}\n"
+                        f"🆔 ID: `{transacao_id}`\n"
+                        "━━━━━━━━━━━━━━━━━━\n\n"
+                        f"💳 *Novo saldo:* R$ {float(novo_saldo):.2f}\n\n"
+                        "🎉 Seu saldo foi liberado automaticamente!"
+                    ),
+                    reply_markup=menu_principal(),
+                    parse_mode="Markdown",
+                )
+            except Exception as erro_envio:
+                log_erro(
+                    "ERRO AO ENVIAR CONFIRMAÇÃO:",
+                    repr(erro_envio),
+                )
+
+            return
+
+        if status in (
+            "canceled",
+            "cancelled",
+            "expired",
+        ):
+            atualizado = atualizar_status_pagamento(
+                transacao_id,
+                "cancelado",
+            )
+
+            if atualizado:
+                try:
+                    await context.bot.send_message(
+                        chat_id=usuario_id,
+                        text=(
+                            "❌ *PAGAMENTO ENCERRADO*\n\n"
+                            f"💰 Valor: R$ {float(valor):.2f}\n\n"
+                            "A cobrança PIX foi cancelada ou expirou.\n\n"
+                            "💳 Nenhum saldo foi adicionado."
+                        ),
+                        reply_markup=menu_principal(),
+                        parse_mode="Markdown",
+                    )
+                except Exception as erro_envio:
+                    log_erro(
+                        "ERRO AO ENVIAR CANCELAMENTO:",
+                        repr(erro_envio),
+                    )
+
+    except Exception as erro:
+        try:
+            pix_id = pagamento[3]
+        except Exception:
+            pix_id = "desconhecido"
+
+        log_erro(
+            f"ERRO NA VERIFICAÇÃO DO PIX {pix_id}:",
+            repr(erro),
+        )
+
+
 async def verificar_pagamentos_automaticamente(
     context: ContextTypes.DEFAULT_TYPE,
 ):
@@ -71,104 +174,17 @@ async def verificar_pagamentos_automaticamente(
         f"🔎 Verificando {len(pagamentos)} pagamento(s)..."
     )
 
-    for pagamento in pagamentos:
-        try:
-            (
-                pagamento_id,
-                usuario_id,
-                valor,
-                transacao_id,
-                status_banco,
-                criado_em,
-            ) = pagamento
-
-            transacao = await asyncio.to_thread(
-                consultar_pix,
-                transacao_id,
-            )
-
-            status = str(
-                transacao.get("status", "")
-            ).lower()
-
-            log_info(
-                f"PIX {transacao_id}: {status}"
-            )
-
-            if status == "paid":
-                resultado = processar_pagamento_pago(
-                    transacao_id
-                )
-
-                if not resultado:
-                    continue
-
-                novo_saldo = consultar_saldo(
-                    usuario_id
-                )
-
-                try:
-                    await context.bot.send_message(
-                        chat_id=usuario_id,
-                        text=(
-                            "✅ *PAGAMENTO APROVADO!*\n\n"
-                            "━━━━━━━━━━━━━━━━━━\n"
-                            f"💰 Valor: R$ {float(valor):.2f}\n"
-                            f"🆔 ID: `{transacao_id}`\n"
-                            "━━━━━━━━━━━━━━━━━━\n\n"
-                            f"💳 *Novo saldo:* R$ {float(novo_saldo):.2f}\n\n"
-                            "🎉 Seu saldo foi liberado automaticamente!"
-                        ),
-                        reply_markup=menu_principal(),
-                        parse_mode="Markdown",
-                    )
-                except Exception as erro_envio:
-                    log_erro(
-                        "ERRO AO ENVIAR CONFIRMAÇÃO:",
-                        repr(erro_envio),
-                    )
-
-                continue
-
-            if status in (
-                "canceled",
-                "cancelled",
-                "expired",
-            ):
-                atualizado = atualizar_status_pagamento(
-                    transacao_id,
-                    "cancelado",
-                )
-
-                if atualizado:
-                    try:
-                        await context.bot.send_message(
-                            chat_id=usuario_id,
-                            text=(
-                                "❌ *PAGAMENTO ENCERRADO*\n\n"
-                                f"💰 Valor: R$ {float(valor):.2f}\n\n"
-                                "A cobrança PIX foi cancelada ou expirou.\n\n"
-                                "💳 Nenhum saldo foi adicionado."
-                            ),
-                            reply_markup=menu_principal(),
-                            parse_mode="Markdown",
-                        )
-                    except Exception as erro_envio:
-                        log_erro(
-                            "ERRO AO ENVIAR CANCELAMENTO:",
-                            repr(erro_envio),
-                        )
-
-        except Exception as erro:
-            try:
-                pix_id = pagamento[3]
-            except Exception:
-                pix_id = "desconhecido"
-
-            log_erro(
-                f"ERRO NA VERIFICAÇÃO DO PIX {pix_id}:",
-                repr(erro),
-            )
+    # Consulta todos os PIX pendentes em paralelo em vez de
+    # um por um em fila — com muitos pagamentos pendentes ao
+    # mesmo tempo (loja com muitos clientes ativos), isso
+    # reduz bastante o tempo total do ciclo de verificação.
+    await asyncio.gather(
+        *(
+            _verificar_um_pagamento(context, pagamento)
+            for pagamento in pagamentos
+        ),
+        return_exceptions=True,
+    )
 
 
 # =========================================================
