@@ -81,7 +81,6 @@ def criar_pix(
     log_info(
         "PUSHINPAY CRIAR PIX:",
         resposta.status_code,
-        resposta.text,
     )
 
     resposta.raise_for_status()
@@ -98,6 +97,12 @@ def criar_pix(
         raise ValueError(
             "Resposta inválida da PushinPay."
         )
+
+    log_info(
+        "PUSHINPAY CRIAR PIX OK:",
+        dados_resposta.get("id"),
+        dados_resposta.get("status"),
+    )
 
     return dados_resposta
 
@@ -126,7 +131,6 @@ def consultar_pix(
     log_info(
         "PUSHINPAY CONSULTAR PIX:",
         resposta.status_code,
-        resposta.text,
     )
 
     resposta.raise_for_status()
@@ -141,6 +145,12 @@ def consultar_pix(
         raise ValueError(
             "Resposta inválida da PushinPay."
         )
+
+    log_info(
+        "PUSHINPAY CONSULTAR PIX OK:",
+        dados.get("id"),
+        dados.get("status"),
+    )
 
     return dados
 
