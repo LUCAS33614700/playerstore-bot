@@ -782,8 +782,10 @@ async def iniciar_adicionar_conta(
 # =========================================================
 # Regras:
 # - Blocos separados por linha em branco -> cada bloco é
-#   uma conta (permite formato com Email/Senha/PIN em
-#   várias linhas por conta).
+#   uma conta, MAS só quando TODOS os blocos têm rótulo de
+#   credencial (Email:, Senha:, PIN:...). Isso evita que um
+#   texto de conta única com descrição/regras em parágrafos
+#   separados seja quebrado em várias contas falsas.
 # - Sem linha em branco, mas com várias linhas onde nenhuma
 #   usa rótulos (Email:, Senha:, PIN:...) -> cada linha é
 #   uma conta (formato simples "usuario:senha" por linha).
@@ -810,7 +812,25 @@ def dividir_contas_do_texto(texto):
         if bloco.strip()
     ]
 
-    if len(blocos) > 1:
+    def bloco_tem_credencial(bloco):
+
+        linhas_bloco = [
+            linha.strip().lower()
+            for linha in bloco.split("\n")
+            if linha.strip()
+        ]
+
+        return any(
+            linha.startswith(
+                ROTULOS_CAMPO_UNICO
+            )
+            for linha in linhas_bloco
+        )
+
+    if len(blocos) > 1 and all(
+        bloco_tem_credencial(bloco)
+        for bloco in blocos
+    ):
         return blocos
 
     linhas = [
