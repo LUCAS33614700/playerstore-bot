@@ -362,11 +362,27 @@ async def verificar_estoque_baixo(
         )
 
 
+def mascarar_nome_cliente(nome, usuario_id):
+    """Gera uma identificação parcial do cliente pra usar
+    em anúncios públicos, tipo 'Ana***' ou 'Cliente #4521'
+    quando não há nome disponível — nunca expõe o nome
+    completo nem o @username."""
+
+    nome = (nome or "").strip()
+
+    if len(nome) >= 2:
+        return f"{nome[:3]}***"
+
+    return f"Cliente #{str(usuario_id)[-4:]}"
+
+
 async def anunciar_venda_grupo(
     bot,
     nome_produto,
     preco,
     quantidade=1,
+    nome_cliente=None,
+    usuario_id=None,
 ):
     try:
 
@@ -393,11 +409,16 @@ async def anunciar_venda_grupo(
         else:
             linha_quantidade = ""
 
-        await bot.send_message(
+        identificacao = mascarar_nome_cliente(
+            nome_cliente, usuario_id
+        )
+
+        mensagem_enviada = await bot.send_message(
             chat_id=grupo_id_int,
             text=(
-                "🎉 *NOVA VENDA REALIZADA!* "
-                f"{nome_produto}\n\n"
+                "🎉 *NOVA VENDA REALIZADA!*\n\n"
+                f"👤 {identificacao} comprou: "
+                f"{nome_produto}\n"
                 f"{linha_quantidade}"
                 f"💰 R$ {valor_total:.2f}\n"
                 "⚡ Corra antes que acabe — "
@@ -966,6 +987,8 @@ async def comprar_produto(
         nome,
         preco,
         quantidade,
+        nome_cliente=query.from_user.first_name,
+        usuario_id=usuario_id,
     )
 
     texto_contas = ""
@@ -3371,6 +3394,8 @@ async def finalizar_compra_carrinho(
             nome,
             preco,
             quantidade,
+            nome_cliente=query.from_user.first_name,
+            usuario_id=usuario_id,
         )
 
     if falhou:
