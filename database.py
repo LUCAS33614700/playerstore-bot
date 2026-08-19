@@ -1187,6 +1187,50 @@ def relatorio_vendas_periodo(
     return 0, 0.0
 
 
+def produto_mais_vendido_periodo(
+    horas=24 * 7,
+):
+    """Retorna (produto_id, nome, quantidade_vendida) do
+    produto que mais vendeu no período, usando pedidos
+    reais com status 'pago'. Retorna None se não houve
+    nenhuma venda no período."""
+
+    conn = conectar()
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        SELECT
+            p.produto_id,
+            pr.nome,
+            SUM(p.quantidade) AS total_vendido
+        FROM pedidos p
+        JOIN produtos pr ON pr.id = p.produto_id
+        WHERE p.status = 'pago'
+        AND p.criado_em >= datetime(
+            'now',
+            ?
+        )
+        GROUP BY p.produto_id
+        ORDER BY total_vendido DESC
+        LIMIT 1
+    """, (
+        f"-{int(horas)} hours",
+    ))
+
+    resultado = cursor.fetchone()
+
+    conn.close()
+
+    if not resultado:
+        return None
+
+    return (
+        int(resultado[0]),
+        resultado[1],
+        int(resultado[2]),
+    )
+
+
 # =========================================================
 # AVISOS DE REPOSIÇÃO DE ESTOQUE
 # =========================================================
