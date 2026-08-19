@@ -336,6 +336,12 @@ async def verificar_estoque_baixo(
                 bot,
                 nome_produto,
             )
+        else:
+            await anunciar_estoque_baixo_grupo(
+                bot,
+                nome_produto,
+                estoque_atual,
+            )
 
         destino = (
             obter_configuracao("suporte_chat_id")
@@ -448,6 +454,68 @@ async def anunciar_venda_grupo(
     except Exception as erro:
         log_erro(
             "ERRO AO ANUNCIAR VENDA:",
+            repr(erro),
+        )
+
+
+async def anunciar_estoque_baixo_grupo(
+    bot,
+    nome_produto,
+    estoque_atual,
+):
+    """Avisa publicamente no grupo que restam poucas
+    unidades de um produto — gera urgência real, já que o
+    número vem direto do estoque atual, sem inventar nada."""
+
+    try:
+
+        grupo_id = obter_configuracao(
+            "grupo_anuncios_id"
+        )
+
+        if not grupo_id:
+            return
+
+        try:
+            grupo_id_int = int(grupo_id)
+        except ValueError:
+            return
+
+        me = await bot.get_me()
+
+        mensagem_enviada = await bot.send_message(
+            chat_id=grupo_id_int,
+            text=(
+                "⚠️ *ÚLTIMAS UNIDADES!*\n\n"
+                f"🛒 {nome_produto}\n"
+                f"📦 Restam apenas {estoque_atual} "
+                "unidade(s)!\n\n"
+                "🔥 Corra antes que acabe!"
+            ),
+            reply_markup=InlineKeyboardMarkup(
+                [
+                    [
+                        InlineKeyboardButton(
+                            "🤖 Acessar o bot",
+                            url=(
+                                f"https://t.me/"
+                                f"{me.username}"
+                            ),
+                        )
+                    ]
+                ]
+            ),
+            parse_mode="Markdown",
+        )
+
+        registrar_mensagem_grupo_anuncios(
+            grupo_id_int,
+            mensagem_enviada.message_id,
+        )
+
+    except Exception as erro:
+        log_erro(
+            "ERRO AO ANUNCIAR ESTOQUE BAIXO:",
             repr(erro),
         )
 
