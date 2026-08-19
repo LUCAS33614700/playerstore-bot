@@ -395,6 +395,13 @@ def menu_admin():
 
         [
             InlineKeyboardButton(
+                "🚀 DIVULGAÇÃO AUTOMÁTICA",
+                callback_data="admin_divulgacao_automatica",
+            )
+        ],
+
+        [
+            InlineKeyboardButton(
                 "🔒 GRUPO OBRIGATÓRIO",
                 callback_data="admin_grupo_obrigatorio",
             )
@@ -1491,6 +1498,48 @@ async def processar_admin_texto(
         await update.message.reply_text(
             "✅ *ESTOQUE MÍNIMO ATUALIZADO!*\n\n"
             f"📉 Novo valor: {valor}",
+            reply_markup=InlineKeyboardMarkup(
+                [
+                    [
+                        InlineKeyboardButton(
+                            "👑 PAINEL ADMIN",
+                            callback_data="admin_menu",
+                        )
+                    ]
+                ]
+            ),
+            parse_mode="Markdown",
+        )
+
+        return True
+
+    if acao == "definir_qtd_divulgacao":
+
+        valor = texto.strip()
+
+        if not valor.isdigit() or not (
+            1 <= int(valor) <= 12
+        ):
+
+            await update.message.reply_text(
+                "❌ Envie um número de 1 a 12.",
+            )
+
+            return True
+
+        qtd = int(valor)
+
+        definir_configuracao(
+            CONFIG_DIVULGACAO_QTD_DIA,
+            str(qtd),
+        )
+
+        limpar_estado(context)
+
+        await update.message.reply_text(
+            "✅ *QUANTIDADE ATUALIZADA!*\n\n"
+            f"📊 Agora são *{qtd}* post(s) "
+            "de divulgação por dia.",
             reply_markup=InlineKeyboardMarkup(
                 [
                     [
@@ -2716,6 +2765,185 @@ async def iniciar_grupo_anuncios(
                     InlineKeyboardButton(
                         "❌ CANCELAR",
                         callback_data="admin_menu",
+                    )
+                ]
+            ]
+        ),
+        parse_mode="Markdown",
+    )
+
+
+# =========================================================
+# DIVULGAÇÃO AUTOMÁTICA (POSTS DE DESTAQUE NO GRUPO)
+# =========================================================
+# Liga/desliga um loop que manda de 1 a 12 posts por dia
+# pro grupo de anúncios, sempre com dado real: o produto
+# mais vendido da semana (se houve venda) ou, na falta
+# disso, um produto do catálogo com estoque disponível.
+# Nunca inventa vendas ou compradores que não existiram.
+
+CONFIG_DIVULGACAO_ATIVA = "divulgacao_automatica_ativa"
+CONFIG_DIVULGACAO_QTD_DIA = "divulgacao_automatica_qtd_dia"
+
+QTD_DIVULGACOES_PADRAO = 4
+
+
+def _divulgacao_ativa():
+    return obter_configuracao(
+        CONFIG_DIVULGACAO_ATIVA
+    ) == "1"
+
+
+def _qtd_divulgacoes_dia():
+    valor = obter_configuracao(
+        CONFIG_DIVULGACAO_QTD_DIA
+    )
+    try:
+        return max(1, min(int(valor), 12))
+    except (TypeError, ValueError):
+        return QTD_DIVULGACOES_PADRAO
+
+
+async def mostrar_divulgacao_automatica(
+    query,
+    context,
+):
+
+    if not await verificar_admin_query(query):
+
+        return
+
+    limpar_estado(context)
+
+    ativa = _divulgacao_ativa()
+    qtd = _qtd_divulgacoes_dia()
+
+    grupo_id = obter_configuracao(
+        "grupo_anuncios_id"
+    )
+
+    status_texto = (
+        "🟢 *ATIVADA*" if ativa else "🔴 *DESATIVADA*"
+    )
+
+    aviso_grupo = (
+        ""
+        if grupo_id
+        else (
+            "\n⚠️ Configure o *Grupo de Anúncios* "
+            "primeiro, senão os posts não têm pra "
+            "onde ir.\n"
+        )
+    )
+
+    texto = (
+        "🚀 *DIVULGAÇÃO AUTOMÁTICA*\n\n"
+        "Manda posts periódicos no grupo de "
+        "anúncios pra atrair mais clientes, "
+        "sempre com dado real da loja — nunca "
+        "invade vendas ou compradores "
+        "inventados. Alterna entre:\n\n"
+        "🏆 Produto mais vendido da semana\n"
+        "✨ Destaque de produto em estoque\n\n"
+        f"Status: {status_texto}\n"
+        f"📊 Posts por dia: *{qtd}*\n"
+        f"{aviso_grupo}"
+    )
+
+    botao_toggle = (
+        InlineKeyboardButton(
+            "🔴 DESATIVAR",
+            callback_data="admin_toggle_divulgacao",
+        )
+        if ativa
+        else InlineKeyboardButton(
+            "🟢 ATIVAR",
+            callback_data="admin_toggle_divulgacao",
+        )
+    )
+
+    await query.edit_message_text(
+        texto,
+        reply_markup=InlineKeyboardMarkup(
+            [
+                [botao_toggle],
+                [
+                    InlineKeyboardButton(
+                        "📊 ALTERAR QTD/DIA (3-5 sugerido)",
+                        callback_data=(
+                            "admin_definir_qtd_divulgacao"
+                        ),
+                    )
+                ],
+                [
+                    InlineKeyboardButton(
+                        "⬅️ VOLTAR",
+                        callback_data="admin_menu",
+                    )
+                ],
+            ]
+        ),
+        parse_mode="Markdown",
+    )
+
+
+async def alternar_divulgacao_automatica(
+    query,
+    context,
+):
+
+    if not await verificar_admin_query(query):
+
+        return
+
+    nova = "0" if _divulgacao_ativa() else "1"
+
+    definir_configuracao(
+        CONFIG_DIVULGACAO_ATIVA,
+        nova,
+    )
+
+    await query.answer(
+        "🟢 Divulgação ativada!"
+        if nova == "1"
+        else "🔴 Divulgação desativada."
+    )
+
+    await mostrar_divulgacao_automatica(
+        query,
+        context,
+    )
+
+
+async def iniciar_definir_qtd_divulgacao(
+    query,
+    context,
+):
+
+    if not await verificar_admin_query(query):
+
+        return
+
+    limpar_estado(context)
+
+    context.user_data[
+        "admin_acao"
+    ] = "definir_qtd_divulgacao"
+
+    await query.edit_message_text(
+        "📊 *QUANTIDADE DE POSTS POR DIA*\n\n"
+        "Envie um número de *1 a 12*.\n\n"
+        "💡 Recomendado: entre *3 e 5* — o "
+        "suficiente pra manter o grupo ativo "
+        "sem parecer spam.",
+        reply_markup=InlineKeyboardMarkup(
+            [
+                [
+                    InlineKeyboardButton(
+                        "❌ CANCELAR",
+                        callback_data=(
+                            "admin_divulgacao_automatica"
+                        ),
                     )
                 ]
             ]
@@ -4117,6 +4345,33 @@ async def botoes_admin(
     if acao == "admin_grupo_anuncios":
 
         await iniciar_grupo_anuncios(
+            query,
+            context,
+        )
+
+        return
+
+    if acao == "admin_divulgacao_automatica":
+
+        await mostrar_divulgacao_automatica(
+            query,
+            context,
+        )
+
+        return
+
+    if acao == "admin_toggle_divulgacao":
+
+        await alternar_divulgacao_automatica(
+            query,
+            context,
+        )
+
+        return
+
+    if acao == "admin_definir_qtd_divulgacao":
+
+        await iniciar_definir_qtd_divulgacao(
             query,
             context,
         )
