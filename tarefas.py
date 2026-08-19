@@ -26,6 +26,9 @@ from database import (
     marcar_mensagem_grupo_apagada,
     relatorio_vendas_periodo,
     obter_configuracao,
+    definir_configuracao,
+    produto_mais_vendido_periodo,
+    listar_todos_produtos,
 )
 
 from pushinpay import consultar_pix
@@ -520,6 +523,203 @@ async def enviar_backup_automatico(
         )
 
 
+# =========================================================
+# POSTS PROMOCIONAIS AUTOMÁTICOS (DIVULGAÇÃO NO GRUPO)
+# =========================================================
+# Manda de tempos em tempos um post real (nunca inventado)
+# no grupo de anúncios, alternando entre "mais vendido da
+# semana" e destaque de um produto do catálogo com estoque
+# disponível — só pra dar visibilidade ao que já existe na
+# loja, sem fingir vendas que não aconteceram.
+
+CONFIG_DIVULGACAO_ATIVA = "divulgacao_automatica_ativa"
+CONFIG_DIVULGACAO_QTD_DIA = "divulgacao_automatica_qtd_dia"
+
+QTD_DIVULGACOES_PADRAO = 4  # dentro da faixa de 3-5 pedida
+
+
+def divulgacao_automatica_esta_ativa():
+    valor = obter_configuracao(
+        CONFIG_DIVULGACAO_ATIVA
+    )
+    return valor == "1"
+
+
+def ativar_divulgacao_automatica():
+    definir_configuracao(
+        CONFIG_DIVULGACAO_ATIVA, "1"
+    )
+
+
+def desativar_divulgacao_automatica():
+    definir_configuracao(
+        CONFIG_DIVULGACAO_ATIVA, "0"
+    )
+
+
+def definir_qtd_divulgacoes_dia(quantidade):
+    quantidade = max(1, min(int(quantidade), 12))
+    definir_configuracao(
+        CONFIG_DIVULGACAO_QTD_DIA,
+        str(quantidade),
+    )
+    return quantidade
+
+
+def obter_qtd_divulgacoes_dia():
+    valor = obter_configuracao(
+        CONFIG_DIVULGACAO_QTD_DIA
+    )
+    try:
+        return max(1, min(int(valor), 12))
+    except (TypeError, ValueError):
+        return QTD_DIVULGACOES_PADRAO
+
+
+async def enviar_post_divulgacao(bot):
+    """Manda UM post de divulgação real pro grupo de
+    anúncios: mais vendido da semana (se houve venda) ou,
+    na falta disso, um produto do catálogo com estoque > 0
+    escolhido de forma rotativa."""
+
+    grupo_id = obter_configuracao("grupo_anuncios_id")
+
+    if not grupo_id:
+        return
+
+    try:
+        grupo_id_int = int(grupo_id)
+    except ValueError:
+        return
+
+    try:
+        me = await bot.get_me()
+
+        botao = InlineKeyboardMarkup(
+            [
+                [
+                    InlineKeyboardButton(
+                        "🛒 Acessar o bot",
+                        url=f"https://t.me/{me.username}",
+                    )
+                ]
+            ]
+        )
+
+        mais_vendido = produto_mais_vendido_periodo(
+            24 * 7
+        )
+
+        if mais_vendido:
+            _, nome, qtd_vendida = mais_vendido
+
+            await bot.send_message(
+                chat_id=grupo_id_int,
+                text=(
+                    "🔥 *MAIS VENDIDO DA SEMANA!*\n\n"
+                    f"🏆 {nome}\n"
+                    f"📦 {qtd_vendida} unidade(s) "
+                    "vendida(s) nos últimos 7 dias\n\n"
+                    "⚡ Garanta o seu antes que acabe!"
+                ),
+                reply_markup=botao,
+                parse_mode="Markdown",
+            )
+            return
+
+        # Sem vendas no período: destaca um produto com
+        # estoque disponível, escolhido de forma rotativa
+        # (baseado no horário) pra não repetir sempre o
+        # mesmo.
+        produtos = [
+            produto
+            for produto in listar_todos_produtos()
+            if int(produto[4]) > 0
+        ]
+
+        if not produtos:
+            return
+
+        import time
+
+        indice = int(time.time() // 3600) % len(produtos)
+        _, nome, descricao, preco, estoque = produtos[
+            indice
+        ]
+
+        await bot.send_message(
+            chat_id=grupo_id_int,
+            text=(
+                "✨ *DESTAQUE DA LOJA!*\n\n"
+                f"🛒 {nome}\n"
+                f"💰 R$ {float(preco):.2f}\n"
+                f"📦 {int(estoque)} disponível(is) "
+                "em estoque\n\n"
+                "⚡ Peça já o seu!"
+            ),
+            reply_markup=botao,
+            parse_mode="Markdown",
+        )
+
+    except Exception as erro:
+        log_erro(
+            "ERRO NO POST DE DIVULGAÇÃO:",
+            repr(erro),
+        )
+
+
+DIVULGACAO_TASK = "divulgacao_automatica_task"
+
+
+async def loop_divulgacao_automatica(
+    application: Application,
+):
+    log_info(
+        "📣 Divulgação automática iniciada "
+        "(aguardando ativação no /admin)."
+    )
+
+    while True:
+
+        if not divulgacao_automatica_esta_ativa():
+            # Checa a cada 5 minutos se foi ligada.
+            await asyncio.sleep(5 * 60)
+            continue
+
+        qtd_dia = obter_qtd_divulgacoes_dia()
+
+        # Distribui os posts ao longo de um dia útil de
+        # divulgação (09h-23h, 14 horas), com uma variação
+        # aleatória pequena pra não parecer um robô batendo
+        # sempre no mesmo minuto exato.
+        import random
+
+        janela_segundos = 14 * 60 * 60
+        intervalo_base = janela_segundos / qtd_dia
+        variacao = intervalo_base * 0.2
+
+        espera = intervalo_base + random.uniform(
+            -variacao, variacao
+        )
+
+        await asyncio.sleep(max(60, espera))
+
+        if not divulgacao_automatica_esta_ativa():
+            continue
+
+        try:
+            await enviar_post_divulgacao(
+                application.bot
+            )
+        except asyncio.CancelledError:
+            raise
+        except Exception as erro:
+            log_erro(
+                "ERRO NO LOOP DE DIVULGAÇÃO:",
+                repr(erro),
+            )
+
+
 async def loop_relatorio_vendas(
     application: Application,
 ):
@@ -650,6 +850,15 @@ async def iniciar_verificador(
         RELATORIO_VENDAS_TASK
     ] = task_relatorio
 
+    task_divulgacao = asyncio.create_task(
+        loop_divulgacao_automatica(application),
+        name=DIVULGACAO_TASK,
+    )
+
+    application.bot_data[
+        DIVULGACAO_TASK
+    ] = task_divulgacao
+
 
 async def parar_verificador(
     application: Application,
@@ -687,6 +896,18 @@ async def parar_verificador(
 
         try:
             await task_relatorio
+        except asyncio.CancelledError:
+            pass
+
+    task_divulgacao = application.bot_data.get(
+        DIVULGACAO_TASK
+    )
+
+    if task_divulgacao:
+        task_divulgacao.cancel()
+
+        try:
+            await task_divulgacao
         except asyncio.CancelledError:
             pass
 
