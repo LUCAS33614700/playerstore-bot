@@ -72,6 +72,7 @@ from database import (
     marcar_encomenda_entregue,
     cancelar_encomenda,
     registrar_mensagem_grupo_anuncios,
+    registrar_boas_vindas_pendente,
     listar_contas_usuario,
     consultar_login,
     produto_ja_alertou_estoque_baixo,
@@ -456,6 +457,75 @@ async def anunciar_venda_grupo(
             "ERRO AO ANUNCIAR VENDA:",
             repr(erro),
         )
+
+
+# =========================================================
+# BOAS-VINDAS AUTOMÁTICAS EM GRUPO (COM AUTO-APAGAR)
+# =========================================================
+# Funciona em qualquer grupo em que o bot seja admin —
+# não precisa configurar ID de grupo. Ao entrar um membro
+# novo, manda uma mensagem de boas-vindas mencionando o
+# nome dele. O horário de apagar é salvo no banco (não só
+# na memória), então mesmo que o bot reinicie antes dos 30
+# minutos passarem, a mensagem ainda é apagada corretamente
+# assim que o bot voltar a rodar.
+
+TEMPO_APAGAR_BOAS_VINDAS = 30 * 60  # 30 minutos
+
+
+async def boas_vindas_novo_membro(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+):
+    mensagem = update.message
+
+    if not mensagem or not mensagem.new_chat_members:
+        return
+
+    for novo_membro in mensagem.new_chat_members:
+
+        # Ignora o próprio bot sendo adicionado ao grupo.
+        if novo_membro.is_bot and (
+            novo_membro.id == context.bot.id
+        ):
+            continue
+
+        nome = (
+            novo_membro.first_name
+            or novo_membro.username
+            or "novo membro"
+        )
+
+        try:
+            mensagem_enviada = await context.bot.send_message(
+                chat_id=mensagem.chat_id,
+                text=(
+                    f"🎉 *Seja bem-vindo(a), {nome}!*\n\n"
+                    "Você acaba de entrar na "
+                    "*PLAYERSTORE* — sua loja de telas, "
+                    "contas e streaming premium com os "
+                    "melhores preços! 🛒✨\n\n"
+                    "👉 Fale com o bot pra ver o "
+                    "catálogo completo e fazer seu "
+                    "pedido em poucos cliques.\n"
+                    "💬 Alguma dúvida? É só chamar o "
+                    "suporte por lá.\n\n"
+                    "🔥 Aproveite e boas compras!"
+                ),
+                parse_mode="Markdown",
+            )
+
+            registrar_boas_vindas_pendente(
+                mensagem.chat_id,
+                mensagem_enviada.message_id,
+                TEMPO_APAGAR_BOAS_VINDAS,
+            )
+
+        except Exception as erro:
+            log_erro(
+                "ERRO AO DAR BOAS-VINDAS:",
+                repr(erro),
+            )
 
 
 async def anunciar_estoque_baixo_grupo(
@@ -5074,6 +5144,13 @@ def main():
     application.add_handler(
         CallbackQueryHandler(
             botoes
+        )
+    )
+
+    application.add_handler(
+        MessageHandler(
+            filters.StatusUpdate.NEW_CHAT_MEMBERS,
+            boas_vindas_novo_membro,
         )
     )
 
