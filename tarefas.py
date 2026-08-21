@@ -29,6 +29,8 @@ from database import (
     definir_configuracao,
     produto_mais_vendido_periodo,
     listar_todos_produtos,
+    listar_boas_vindas_vencidas,
+    marcar_boas_vindas_apagada,
 )
 
 from pushinpay import consultar_pix
@@ -412,6 +414,78 @@ async def apagar_mensagens_antigas_grupo(
 
         marcar_mensagem_grupo_apagada(
             registro_id
+        )
+
+
+# =========================================================
+# BOAS-VINDAS PENDENTES DE APAGAR
+# =========================================================
+# Verificador rápido (a cada minuto) que confere no banco
+# quais boas-vindas já venceram o prazo de 30 minutos e
+# apaga a mensagem — sobrevive a reinícios do bot, já que o
+# horário fica salvo no banco e não só na memória.
+
+INTERVALO_VERIFICACAO_BOAS_VINDAS = 60  # 1 minuto
+
+BOAS_VINDAS_TASK = "boas_vindas_task"
+
+
+async def apagar_boas_vindas_vencidas(
+    bot,
+):
+
+    pendentes = listar_boas_vindas_vencidas()
+
+    if not pendentes:
+        return
+
+    for registro_id, chat_id, message_id in pendentes:
+
+        try:
+            await bot.delete_message(
+                chat_id=chat_id,
+                message_id=message_id,
+            )
+        except Exception as erro:
+            log_erro(
+                "ERRO AO APAGAR BOAS-VINDAS "
+                "VENCIDA:",
+                repr(erro),
+            )
+
+        marcar_boas_vindas_apagada(
+            registro_id
+        )
+
+
+async def loop_boas_vindas(
+    application: Application,
+):
+    log_info(
+        "👋 Verificador de boas-vindas iniciado."
+    )
+
+    while True:
+        try:
+            await apagar_boas_vindas_vencidas(
+                application.bot
+            )
+
+        except asyncio.CancelledError:
+            log_info(
+                "👋 Verificador de boas-vindas "
+                "encerrado."
+            )
+            raise
+
+        except Exception as erro:
+            log_erro(
+                "ERRO NO LOOP DE BOAS-VINDAS:",
+                repr(erro),
+            )
+
+        await asyncio.sleep(
+            INTERVALO_VERIFICACAO_BOAS_VINDAS
         )
 
 
@@ -859,6 +933,15 @@ async def iniciar_verificador(
         DIVULGACAO_TASK
     ] = task_divulgacao
 
+    task_boas_vindas = asyncio.create_task(
+        loop_boas_vindas(application),
+        name=BOAS_VINDAS_TASK,
+    )
+
+    application.bot_data[
+        BOAS_VINDAS_TASK
+    ] = task_boas_vindas
+
 
 async def parar_verificador(
     application: Application,
@@ -908,6 +991,18 @@ async def parar_verificador(
 
         try:
             await task_divulgacao
+        except asyncio.CancelledError:
+            pass
+
+    task_boas_vindas = application.bot_data.get(
+        BOAS_VINDAS_TASK
+    )
+
+    if task_boas_vindas:
+        task_boas_vindas.cancel()
+
+        try:
+            await task_boas_vindas
         except asyncio.CancelledError:
             pass
 
