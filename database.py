@@ -382,6 +382,26 @@ def criar_tabelas():
         )
     """)
 
+    # -----------------------------------------------------
+    # BOAS-VINDAS PENDENTES DE APAGAR
+    # -----------------------------------------------------
+    # Guarda o horário exato em que cada mensagem de
+    # boas-vindas deve ser apagada. Diferente de um
+    # asyncio.sleep em memória, isso sobrevive a reinícios
+    # do bot — um verificador periódico confere o que já
+    # venceu, mesmo que o bot tenha sido reiniciado no meio
+    # do caminho.
+
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS boas_vindas_pendentes (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            chat_id INTEGER NOT NULL,
+            message_id INTEGER NOT NULL,
+            apagar_em TIMESTAMP NOT NULL,
+            apagada INTEGER DEFAULT 0
+        )
+    """)
+
     # Migração: quem já tinha um único grupo obrigatório
     # configurado (chave/valor antigo) tem ele importado
     # automaticamente pra nova tabela, uma única vez.
@@ -3113,6 +3133,85 @@ def marcar_mensagem_grupo_apagada(
 
     cursor.execute("""
         UPDATE mensagens_grupo_anuncios
+        SET apagada = 1
+        WHERE id = ?
+    """, (
+        registro_id,
+    ))
+
+    conn.commit()
+    conn.close()
+
+
+# =========================================================
+# BOAS-VINDAS PENDENTES DE APAGAR
+# =========================================================
+
+def registrar_boas_vindas_pendente(
+    chat_id,
+    message_id,
+    segundos_ate_apagar,
+):
+
+    conn = conectar()
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        INSERT INTO boas_vindas_pendentes
+        (
+            chat_id,
+            message_id,
+            apagar_em
+        )
+        VALUES (
+            ?,
+            ?,
+            datetime(
+                'now',
+                '+' || ? || ' seconds'
+            )
+        )
+    """, (
+        chat_id,
+        message_id,
+        segundos_ate_apagar,
+    ))
+
+    conn.commit()
+    conn.close()
+
+
+def listar_boas_vindas_vencidas():
+
+    conn = conectar()
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        SELECT
+            id,
+            chat_id,
+            message_id
+        FROM boas_vindas_pendentes
+        WHERE apagada = 0
+        AND apagar_em <= datetime('now')
+    """)
+
+    pendentes = cursor.fetchall()
+
+    conn.close()
+
+    return pendentes
+
+
+def marcar_boas_vindas_apagada(
+    registro_id,
+):
+
+    conn = conectar()
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        UPDATE boas_vindas_pendentes
         SET apagada = 1
         WHERE id = ?
     """, (
