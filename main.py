@@ -471,6 +471,7 @@ async def anunciar_venda_grupo(
 # assim que o bot voltar a rodar.
 
 TEMPO_APAGAR_BOAS_VINDAS = 30 * 60  # 30 minutos
+TEMPO_APAGAR_DESPEDIDA = 15 * 60  # 15 minutos
 
 
 async def boas_vindas_novo_membro(
@@ -497,6 +498,8 @@ async def boas_vindas_novo_membro(
         )
 
         try:
+            me = await context.bot.get_me()
+
             mensagem_enviada = await context.bot.send_message(
                 chat_id=mensagem.chat_id,
                 text=(
@@ -512,6 +515,19 @@ async def boas_vindas_novo_membro(
                     "suporte por lá.\n\n"
                     "🔥 Aproveite e boas compras!"
                 ),
+                reply_markup=InlineKeyboardMarkup(
+                    [
+                        [
+                            InlineKeyboardButton(
+                                "🛒 Acessar o bot",
+                                url=(
+                                    f"https://t.me/"
+                                    f"{me.username}"
+                                ),
+                            )
+                        ]
+                    ]
+                ),
                 parse_mode="Markdown",
             )
 
@@ -526,6 +542,67 @@ async def boas_vindas_novo_membro(
                 "ERRO AO DAR BOAS-VINDAS:",
                 repr(erro),
             )
+
+
+async def despedida_membro(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+):
+    mensagem = update.message
+
+    if not mensagem or not mensagem.left_chat_member:
+        return
+
+    ex_membro = mensagem.left_chat_member
+
+    # Ignora o próprio bot sendo removido do grupo.
+    if ex_membro.is_bot and (
+        ex_membro.id == context.bot.id
+    ):
+        return
+
+    nome = (
+        ex_membro.first_name
+        or ex_membro.username
+        or "alguém"
+    )
+
+    try:
+        total_membros = (
+            await context.bot.get_chat_member_count(
+                mensagem.chat_id
+            )
+        )
+
+        mensagem_enviada = await context.bot.send_message(
+            chat_id=mensagem.chat_id,
+            text=(
+                "🚨 *Atenção, comunicado oficial* 🚨\n\n"
+                f"*{nome}* resolveu abandonar o "
+                "prestigiado grupo da *PLAYERSTORE* "
+                "⚡.\n"
+                "Sim, é verdade… achou que o mundo lá "
+                "fora ofereceria algo melhor.\n"
+                "Boa sorte nessa missão impossível! "
+                "🙃\n\n"
+                "Enquanto isso, nós, os incríveis "
+                f"{total_membros} que realmente "
+                "importam, seguimos firmes por aqui! 🔥"
+            ),
+            parse_mode="Markdown",
+        )
+
+        registrar_boas_vindas_pendente(
+            mensagem.chat_id,
+            mensagem_enviada.message_id,
+            TEMPO_APAGAR_DESPEDIDA,
+        )
+
+    except Exception as erro:
+        log_erro(
+            "ERRO NA MENSAGEM DE SAÍDA:",
+            repr(erro),
+        )
 
 
 async def anunciar_estoque_baixo_grupo(
@@ -5151,6 +5228,13 @@ def main():
         MessageHandler(
             filters.StatusUpdate.NEW_CHAT_MEMBERS,
             boas_vindas_novo_membro,
+        )
+    )
+
+    application.add_handler(
+        MessageHandler(
+            filters.StatusUpdate.LEFT_CHAT_MEMBER,
+            despedida_membro,
         )
     )
 
