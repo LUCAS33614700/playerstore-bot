@@ -386,8 +386,17 @@ async def apagar_mensagens_antigas_grupo(
     bot,
 ):
 
+    dias_configurado = obter_configuracao(
+        "limpeza_grupo_dias"
+    )
+
+    try:
+        dias = max(1, min(int(dias_configurado), 3))
+    except (TypeError, ValueError):
+        dias = 3
+
     mensagens = listar_mensagens_grupo_para_apagar(
-        dias=3
+        dias=dias
     )
 
     if not mensagens:
