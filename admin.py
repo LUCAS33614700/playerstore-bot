@@ -17,6 +17,7 @@ from config import ADMIN_ID
 
 from database import (
     listar_todos_produtos,
+    resumo_dashboard_admin,
     buscar_produto,
     adicionar_login,
     adicionar_varios_logins,
@@ -237,6 +238,58 @@ def is_admin(user_id):
 # PAINEL ADMIN
 # =========================================================
 
+def texto_dashboard_admin():
+    """Monta o resumo rápido que aparece no topo do painel
+    admin: vendas de hoje, clientes novos e alertas de
+    estoque crítico — tudo calculado na hora, dado real."""
+
+    dados = resumo_dashboard_admin()
+
+    linhas_estoque = ""
+
+    if dados["produtos_criticos"]:
+
+        itens = dados["produtos_criticos"][:5]
+
+        linhas_estoque = "\n⚠️ *Estoque crítico:*\n"
+
+        for nome, disponiveis in itens:
+            linhas_estoque += (
+                f"• {nome}: {disponiveis}\n"
+            )
+
+        if len(dados["produtos_criticos"]) > 5:
+            restante = (
+                len(dados["produtos_criticos"]) - 5
+            )
+            linhas_estoque += (
+                f"…e mais {restante} produto(s)\n"
+            )
+
+    else:
+        linhas_estoque = (
+            "\n✅ Nenhum produto com estoque "
+            "crítico.\n"
+        )
+
+    linha_pix = (
+        f"⏳ PIX pendentes: {dados['pix_pendentes']}\n"
+        if dados["pix_pendentes"] > 0
+        else ""
+    )
+
+    return (
+        "📊 *RESUMO DE HOJE*\n"
+        f"🛒 Vendas: {dados['vendas_qtd']} "
+        f"(R$ {dados['vendas_valor']:.2f})\n"
+        f"👤 Clientes novos: {dados['clientes_novos']}\n"
+        f"👥 Total de clientes: "
+        f"{dados['total_clientes']}\n"
+        f"{linha_pix}"
+        f"{linhas_estoque}"
+    )
+
+
 async def abrir_admin(
     update: Update,
     context: ContextTypes.DEFAULT_TYPE,
@@ -271,8 +324,7 @@ async def abrir_admin(
 
         await query.edit_message_text(
             "👑 *PAINEL ADMINISTRATIVO*\n\n"
-            "Bem-vindo ao painel de administração "
-            "da PLAYER STORE.\n\n"
+            f"{texto_dashboard_admin()}\n"
             "Escolha uma opção:",
             reply_markup=menu_admin(),
             parse_mode="Markdown",
@@ -282,8 +334,7 @@ async def abrir_admin(
 
         await update.message.reply_text(
             "👑 *PAINEL ADMINISTRATIVO*\n\n"
-            "Bem-vindo ao painel de administração "
-            "da PLAYER STORE.\n\n"
+            f"{texto_dashboard_admin()}\n"
             "Escolha uma opção:",
             reply_markup=menu_admin(),
             parse_mode="Markdown",
@@ -390,6 +441,13 @@ def menu_admin():
             InlineKeyboardButton(
                 "📣 GRUPO DE ANÚNCIOS (ESTOQUE)",
                 callback_data="admin_grupo_anuncios",
+            )
+        ],
+
+        [
+            InlineKeyboardButton(
+                "🧹 LIMPEZA AUTOMÁTICA DO GRUPO",
+                callback_data="admin_limpeza_grupo",
             )
         ],
 
@@ -2718,6 +2776,70 @@ async def iniciar_estoque_minimo(
 
 
 # =========================================================
+# LIMPEZA AUTOMÁTICA DE MENSAGENS DO GRUPO (1/2/3 DIAS)
+# =========================================================
+
+async def mostrar_limpeza_grupo(
+    query,
+    context,
+):
+
+    if not await verificar_admin_query(query):
+
+        return
+
+    limpar_estado(context)
+
+    atual = obter_configuracao(
+        "limpeza_grupo_dias"
+    ) or "3"
+
+    def marcador(valor):
+        return " ✅" if atual == valor else ""
+
+    await query.edit_message_text(
+        "🧹 *LIMPEZA AUTOMÁTICA DO GRUPO*\n\n"
+        "Depois de quantos dias as mensagens "
+        "postadas pelo bot no grupo de "
+        "anúncios (vendas, destaques, "
+        "estoque) devem ser apagadas "
+        "automaticamente?\n\n"
+        f"📋 *Atual:* {atual} dia(s)",
+        reply_markup=InlineKeyboardMarkup(
+            [
+                [
+                    InlineKeyboardButton(
+                        f"1 dia{marcador('1')}",
+                        callback_data=(
+                            "admin_limpeza_grupo_set_1"
+                        ),
+                    ),
+                    InlineKeyboardButton(
+                        f"2 dias{marcador('2')}",
+                        callback_data=(
+                            "admin_limpeza_grupo_set_2"
+                        ),
+                    ),
+                    InlineKeyboardButton(
+                        f"3 dias{marcador('3')}",
+                        callback_data=(
+                            "admin_limpeza_grupo_set_3"
+                        ),
+                    ),
+                ],
+                [
+                    InlineKeyboardButton(
+                        "⬅️ VOLTAR",
+                        callback_data="admin_menu",
+                    )
+                ],
+            ]
+        ),
+        parse_mode="Markdown",
+    )
+
+
+# =========================================================
 # GRUPO DE ANÚNCIOS (ESTOQUE)
 # =========================================================
 
@@ -4345,6 +4467,37 @@ async def botoes_admin(
     if acao == "admin_grupo_anuncios":
 
         await iniciar_grupo_anuncios(
+            query,
+            context,
+        )
+
+        return
+
+    if acao == "admin_limpeza_grupo":
+
+        await mostrar_limpeza_grupo(
+            query,
+            context,
+        )
+
+        return
+
+    if acao.startswith("admin_limpeza_grupo_set_"):
+
+        dias = acao.replace(
+            "admin_limpeza_grupo_set_", ""
+        )
+
+        definir_configuracao(
+            "limpeza_grupo_dias",
+            dias,
+        )
+
+        await query.answer(
+            f"✅ Limpeza definida para {dias} dia(s)."
+        )
+
+        await mostrar_limpeza_grupo(
             query,
             context,
         )
