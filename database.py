@@ -246,6 +246,21 @@ def criar_tabelas():
         pass
 
     # -----------------------------------------------------
+    # DATA DE CADASTRO (usada no dashboard do /admin para
+    # contar clientes novos do dia — clientes cadastrados
+    # antes dessa migração ficam com valor NULO, o que é
+    # esperado e tratado como "cliente antigo")
+    # -----------------------------------------------------
+
+    try:
+        cursor.execute("""
+            ALTER TABLE usuarios
+            ADD COLUMN criado_em TIMESTAMP
+        """)
+    except sqlite3.OperationalError:
+        pass
+
+    # -----------------------------------------------------
     # DURAÇÃO DO PRODUTO / AVISO DE VENCIMENTO
     # -----------------------------------------------------
 
@@ -779,9 +794,10 @@ def criar_usuario(
             id,
             nome,
             username,
-            saldo
+            saldo,
+            criado_em
         )
-        VALUES (?, ?, ?, 0)
+        VALUES (?, ?, ?, 0, datetime('now'))
     """, (
         user_id,
         nome,
@@ -1249,6 +1265,91 @@ def produto_mais_vendido_periodo(
         resultado[1],
         int(resultado[2]),
     )
+
+
+def resumo_dashboard_admin():
+    """Reúne os números do dia pro dashboard resumido do
+    /admin: vendas de hoje (qtd + valor), clientes novos
+    hoje, saldo total dos clientes e produtos com estoque
+    igual ou abaixo do mínimo configurado."""
+
+    conn = conectar()
+    cursor = conn.cursor()
+
+    # Vendas de hoje (últimas 24h, pedidos pagos)
+    cursor.execute("""
+        SELECT
+            COUNT(*),
+            COALESCE(SUM(valor), 0)
+        FROM pedidos
+        WHERE status = 'pago'
+        AND criado_em >= datetime('now', '-24 hours')
+    """)
+    vendas_qtd, vendas_valor = cursor.fetchone()
+
+    # Clientes novos hoje (últimas 24h)
+    cursor.execute("""
+        SELECT COUNT(*)
+        FROM usuarios
+        WHERE criado_em >= datetime('now', '-24 hours')
+    """)
+    clientes_novos = cursor.fetchone()[0]
+
+    # Total de clientes cadastrados
+    cursor.execute("""
+        SELECT COUNT(*) FROM usuarios
+    """)
+    total_clientes = cursor.fetchone()[0]
+
+    # Estoque mínimo configurado (padrão 2, se não houver
+    # nada configurado ainda)
+    cursor.execute("""
+        SELECT valor FROM configuracoes
+        WHERE chave = 'estoque_minimo'
+    """)
+    linha_minimo = cursor.fetchone()
+
+    try:
+        estoque_minimo = int(linha_minimo[0])
+    except (TypeError, ValueError):
+        estoque_minimo = 3
+
+    # Produtos com estoque de login igual ou abaixo do
+    # mínimo (inclui zerados)
+    cursor.execute("""
+        SELECT
+            pr.nome,
+            COUNT(l.id) AS disponiveis
+        FROM produtos pr
+        LEFT JOIN logins l
+            ON l.produto_id = pr.id
+            AND l.status = 'disponivel'
+        GROUP BY pr.id
+        HAVING disponiveis <= ?
+        ORDER BY disponiveis ASC
+    """, (
+        estoque_minimo,
+    ))
+    produtos_criticos = cursor.fetchall()
+
+    # Pagamentos PIX pendentes agora
+    cursor.execute("""
+        SELECT COUNT(*)
+        FROM pagamentos
+        WHERE status = 'pendente'
+    """)
+    pix_pendentes = cursor.fetchone()[0]
+
+    conn.close()
+
+    return {
+        "vendas_qtd": int(vendas_qtd or 0),
+        "vendas_valor": float(vendas_valor or 0),
+        "clientes_novos": int(clientes_novos or 0),
+        "total_clientes": int(total_clientes or 0),
+        "produtos_criticos": produtos_criticos,
+        "pix_pendentes": int(pix_pendentes or 0),
+    }
 
 
 # =========================================================
