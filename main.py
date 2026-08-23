@@ -398,11 +398,21 @@ async def anunciar_venda_grupo(
         )
 
         if not grupo_id:
+            log_info(
+                "ℹ️ Anúncio de venda ignorado: "
+                "nenhum grupo de anúncios "
+                "configurado."
+            )
             return
 
         try:
             grupo_id_int = int(grupo_id)
         except ValueError:
+            log_erro(
+                "ERRO AO ANUNCIAR VENDA:",
+                f"grupo_anuncios_id inválido: "
+                f"{grupo_id!r}",
+            )
             return
 
         me = await bot.get_me()
@@ -452,6 +462,11 @@ async def anunciar_venda_grupo(
             mensagem_enviada.message_id,
         )
 
+        log_info(
+            f"✅ Venda anunciada no grupo "
+            f"{grupo_id_int}: {nome_produto}"
+        )
+
     except Exception as erro:
         log_erro(
             "ERRO AO ANUNCIAR VENDA:",
@@ -482,6 +497,13 @@ async def boas_vindas_novo_membro(
 
     if not mensagem or not mensagem.new_chat_members:
         return
+
+    log_info(
+        "👋 Evento de novo(s) membro(s) recebido "
+        f"no chat {mensagem.chat_id}: "
+        f"{len(mensagem.new_chat_members)} "
+        "pessoa(s)."
+    )
 
     for novo_membro in mensagem.new_chat_members:
 
@@ -537,6 +559,11 @@ async def boas_vindas_novo_membro(
                 TEMPO_APAGAR_BOAS_VINDAS,
             )
 
+            log_info(
+                f"✅ Boas-vindas enviada pra {nome} "
+                f"no chat {mensagem.chat_id}."
+            )
+
         except Exception as erro:
             log_erro(
                 "ERRO AO DAR BOAS-VINDAS:",
@@ -554,6 +581,11 @@ async def despedida_membro(
         return
 
     ex_membro = mensagem.left_chat_member
+
+    log_info(
+        "🚪 Evento de saída recebido no chat "
+        f"{mensagem.chat_id}: {ex_membro.first_name}"
+    )
 
     # Ignora o próprio bot sendo removido do grupo.
     if ex_membro.is_bot and (
@@ -596,6 +628,11 @@ async def despedida_membro(
             mensagem.chat_id,
             mensagem_enviada.message_id,
             TEMPO_APAGAR_DESPEDIDA,
+        )
+
+        log_info(
+            f"✅ Despedida enviada pra {nome} "
+            f"no chat {mensagem.chat_id}."
         )
 
     except Exception as erro:
