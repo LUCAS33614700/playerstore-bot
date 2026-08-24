@@ -827,6 +827,69 @@ async def enviar_menu_principal(
 LEMBRETE_DELAY_SEGUNDOS = 5 * 60
 
 
+def montar_mensagem_compra_realizada(
+    itens,
+    total,
+    novo_saldo,
+):
+    """Monta a mensagem de entrega no MESMO formato fixo
+    para qualquer compra (produto único ou carrinho com
+    vários produtos), sempre começando com o agradecimento.
+
+    `itens` é uma lista de dicts:
+        {
+            "nome": nome do produto,
+            "quantidade": int,
+            "preco_unitario": float,
+            "contas": [dados1, dados2, ...],
+        }
+    """
+
+    texto = (
+        "🙏 *Obrigado pela sua compra!*\n\n"
+        "✅ *COMPRA REALIZADA COM SUCESSO*\n"
+        "━━━━━━━━━━━━━━━━━━\n"
+    )
+
+    for item in itens:
+
+        subtotal = (
+            item["preco_unitario"]
+            * item["quantidade"]
+        )
+
+        texto += (
+            f"🛒 *Produto:* {item['nome']}\n"
+            f"📦 *Quantidade:* "
+            f"{item['quantidade']}\n"
+            f"💰 *Preço unitário:* R$ "
+            f"{item['preco_unitario']:.2f}\n"
+            f"💵 *Subtotal:* R$ {subtotal:.2f}\n\n"
+        )
+
+        texto += "🎁 *SEUS DADOS DE ACESSO*\n"
+
+        for indice, dados in enumerate(
+            item["contas"], start=1
+        ):
+            texto += (
+                f"🔐 *Conta {indice}*\n"
+                f"```\n{dados}\n```\n"
+            )
+
+        texto += "\n"
+
+    texto += (
+        "━━━━━━━━━━━━━━━━━━\n\n"
+        f"💵 *Total pago:* R$ {total:.2f}\n"
+        f"💳 *Saldo restante:* R$ {novo_saldo:.2f}\n\n"
+        "⚡ Entrega realizada automaticamente.\n"
+        "💬 Qualquer dúvida, é só chamar o suporte!"
+    )
+
+    return texto
+
+
 async def enviar_lembrete_compra(
     bot,
     usuario_id,
@@ -1254,27 +1317,17 @@ async def comprar_produto(
         usuario_id=usuario_id,
     )
 
-    texto_contas = ""
-
-    for indice, dados in enumerate(contas_entregues, start=1):
-        texto_contas += (
-            f"\n🔐 *CONTA {indice}*\n"
-            f"```\n{dados}\n```\n"
-        )
-
-    texto = (
-        "✅ *COMPRA REALIZADA!*\n\n"
-        "━━━━━━━━━━━━━━━━━━\n"
-        f"🛒 *Produto:* {nome}\n"
-        f"📦 *Quantidade:* {quantidade}\n"
-        f"💰 *Preço unitário:* R$ {preco:.2f}\n"
-        f"💵 *Total:* R$ {valor_total:.2f}\n"
-        "━━━━━━━━━━━━━━━━━━\n\n"
-        "🎁 *SEUS DADOS DE ACESSO*\n"
-        f"{texto_contas}"
-        "━━━━━━━━━━━━━━━━━━\n\n"
-        f"💳 *Saldo restante:* R$ {novo_saldo:.2f}\n\n"
-        "⚡ Entrega realizada automaticamente."
+    texto = montar_mensagem_compra_realizada(
+        itens=[
+            {
+                "nome": nome,
+                "quantidade": quantidade,
+                "preco_unitario": preco,
+                "contas": contas_entregues,
+            }
+        ],
+        total=valor_total,
+        novo_saldo=novo_saldo,
     )
 
     botoes = InlineKeyboardMarkup(
@@ -3643,7 +3696,12 @@ async def finalizar_compra_carrinho(
             break
 
         entregas.append(
-            (nome, contas_produto)
+            {
+                "nome": nome,
+                "quantidade": quantidade,
+                "preco_unitario": preco,
+                "contas": contas_produto,
+            }
         )
 
         await verificar_estoque_baixo(
@@ -3698,30 +3756,10 @@ async def finalizar_compra_carrinho(
         consultar_saldo(usuario_id) or 0
     )
 
-    texto = (
-        "✅ *COMPRA REALIZADA!*\n\n"
-        "━━━━━━━━━━━━━━━━━━\n"
-    )
-
-    for nome, contas in entregas:
-
-        texto += f"🛍️ *{nome}*\n"
-
-        for indice, dados in enumerate(
-            contas, start=1
-        ):
-            texto += (
-                f"🔐 *Conta {indice}*\n"
-                f"```\n{dados}\n```\n"
-            )
-
-        texto += "\n"
-
-    texto += (
-        "━━━━━━━━━━━━━━━━━━\n\n"
-        f"💵 *Total pago:* R$ {total:.2f}\n"
-        f"💳 *Saldo restante:* R$ {novo_saldo:.2f}\n\n"
-        "⚡ Entrega realizada automaticamente."
+    texto = montar_mensagem_compra_realizada(
+        itens=entregas,
+        total=total,
+        novo_saldo=novo_saldo,
     )
 
     await editar_ou_substituir(
