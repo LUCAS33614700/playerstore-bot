@@ -371,14 +371,25 @@ async def verificar_estoque_baixo(
 
 def mascarar_nome_cliente(nome, usuario_id):
     """Gera uma identificação parcial do cliente pra usar
-    em anúncios públicos, tipo 'Ana***' ou 'Cliente #4521'
+    em anúncios públicos, tipo 'Ana…' ou 'Cliente #4521'
     quando não há nome disponível — nunca expõe o nome
-    completo nem o @username."""
+    completo nem o @username.
+
+    Usa reticências (…) em vez de asteriscos (*) de
+    propósito: asteriscos são o símbolo de negrito no
+    Markdown do Telegram, e três asteriscos soltos no meio
+    do texto quebram a formatação da mensagem inteira,
+    fazendo o Telegram recusar o envio."""
 
     nome = (nome or "").strip()
 
-    if len(nome) >= 2:
-        return f"{nome[:3]}***"
+    # Remove caracteres que têm significado especial no
+    # Markdown do Telegram (*, _, [, ]) do pedaço do nome
+    # que será exibido, por segurança extra.
+    nome_limpo = re.sub(r"[*_\[\]]", "", nome)
+
+    if len(nome_limpo) >= 2:
+        return f"{nome_limpo[:3]}…"
 
     return f"Cliente #{str(usuario_id)[-4:]}"
 
