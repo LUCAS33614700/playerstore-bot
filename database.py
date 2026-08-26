@@ -880,6 +880,40 @@ def listar_clientes_paginado(
     return clientes, int(total or 0)
 
 
+def obter_estatisticas_cliente(usuario_id):
+    """Resumo de gasto do cliente pra exibir na ficha do
+    admin: total já gasto, quantidade de compras e data da
+    última compra — tudo calculado a partir de pedidos
+    pagos de verdade."""
+
+    conn = conectar()
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        SELECT
+            COUNT(*),
+            COALESCE(SUM(valor), 0),
+            MAX(criado_em)
+        FROM pedidos
+        WHERE usuario_id = ?
+        AND status = 'pago'
+    """, (
+        usuario_id,
+    ))
+
+    total_pedidos, total_gasto, ultima_compra = (
+        cursor.fetchone()
+    )
+
+    conn.close()
+
+    return {
+        "total_pedidos": int(total_pedidos or 0),
+        "total_gasto": float(total_gasto or 0),
+        "ultima_compra": ultima_compra,
+    }
+
+
 def listar_pedidos_cliente(
     usuario_id,
     pagina=0,
