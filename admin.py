@@ -18,6 +18,7 @@ from config import ADMIN_ID
 from database import (
     listar_todos_produtos,
     resumo_dashboard_admin,
+    listar_clientes_paginado,
     buscar_produto,
     adicionar_login,
     adicionar_varios_logins,
@@ -469,6 +470,13 @@ def menu_admin():
             InlineKeyboardButton(
                 "👤 GERENCIAR CLIENTE",
                 callback_data="admin_gerenciar_cliente",
+            )
+        ],
+
+        [
+            InlineKeyboardButton(
+                "📋 LISTAR CLIENTES",
+                callback_data="admin_listar_clientes_0",
             )
         ],
 
@@ -3078,6 +3086,118 @@ async def iniciar_definir_qtd_divulgacao(
 # GRUPO OBRIGATÓRIO (ENTRAR ANTES DE USAR O BOT)
 # =========================================================
 
+async def mostrar_lista_clientes(
+    query,
+    context,
+    pagina=0,
+):
+
+    if not await verificar_admin_query(query):
+
+        return
+
+    limpar_estado(context)
+
+    POR_PAGINA = 10
+
+    clientes, total = listar_clientes_paginado(
+        pagina=pagina,
+        por_pagina=POR_PAGINA,
+    )
+
+    if total == 0:
+        await query.edit_message_text(
+            "📋 *LISTAR CLIENTES*\n\n"
+            "Nenhum cliente cadastrado ainda.",
+            reply_markup=InlineKeyboardMarkup(
+                [
+                    [
+                        InlineKeyboardButton(
+                            "⬅️ VOLTAR",
+                            callback_data="admin_menu",
+                        )
+                    ]
+                ]
+            ),
+            parse_mode="Markdown",
+        )
+        return
+
+    total_paginas = max(
+        1,
+        (total + POR_PAGINA - 1) // POR_PAGINA,
+    )
+
+    pagina_atual = max(
+        0, min(pagina, total_paginas - 1)
+    )
+
+    linhas_botoes = []
+
+    for cliente_id, nome, username, saldo in clientes:
+
+        rotulo_nome = (
+            nome or username or str(cliente_id)
+        )
+
+        linhas_botoes.append([
+            InlineKeyboardButton(
+                f"{rotulo_nome} — "
+                f"R$ {float(saldo or 0):.2f}",
+                callback_data=(
+                    f"admin_ver_cliente_{cliente_id}"
+                ),
+            )
+        ])
+
+    botoes_navegacao = []
+
+    if pagina_atual > 0:
+        botoes_navegacao.append(
+            InlineKeyboardButton(
+                "⬅️ Anterior",
+                callback_data=(
+                    "admin_listar_clientes_"
+                    f"{pagina_atual - 1}"
+                ),
+            )
+        )
+
+    if pagina_atual < total_paginas - 1:
+        botoes_navegacao.append(
+            InlineKeyboardButton(
+                "Próxima ➡️",
+                callback_data=(
+                    "admin_listar_clientes_"
+                    f"{pagina_atual + 1}"
+                ),
+            )
+        )
+
+    if botoes_navegacao:
+        linhas_botoes.append(botoes_navegacao)
+
+    linhas_botoes.append([
+        InlineKeyboardButton(
+            "⬅️ VOLTAR AO PAINEL",
+            callback_data="admin_menu",
+        )
+    ])
+
+    await query.edit_message_text(
+        "📋 *LISTAR CLIENTES*\n\n"
+        f"👥 Total: {total} cliente(s)\n"
+        f"📄 Página {pagina_atual + 1} de "
+        f"{total_paginas}\n\n"
+        "Toque em um cliente pra ver a ficha "
+        "completa:",
+        reply_markup=InlineKeyboardMarkup(
+            linhas_botoes
+        ),
+        parse_mode="Markdown",
+    )
+
+
 async def iniciar_gerenciar_cliente(
     query,
     context,
@@ -4579,6 +4699,51 @@ async def botoes_admin(
         await iniciar_gerenciar_cliente(
             query,
             context,
+        )
+
+        return
+
+    if acao.startswith("admin_listar_clientes_"):
+
+        pagina_texto = acao.replace(
+            "admin_listar_clientes_", ""
+        )
+
+        try:
+            pagina = int(pagina_texto)
+        except ValueError:
+            pagina = 0
+
+        await mostrar_lista_clientes(
+            query,
+            context,
+            pagina=pagina,
+        )
+
+        return
+
+    if acao.startswith("admin_ver_cliente_"):
+
+        if not await verificar_admin_query(query):
+            return
+
+        cliente_id_texto = acao.replace(
+            "admin_ver_cliente_", ""
+        )
+
+        try:
+            cliente_id = int(cliente_id_texto)
+        except ValueError:
+            await query.answer(
+                "❌ ID inválido.",
+                show_alert=True,
+            )
+            return
+
+        await mostrar_ficha_cliente(
+            query,
+            cliente_id,
+            e_mensagem=False,
         )
 
         return
