@@ -19,6 +19,7 @@ from database import (
     listar_todos_produtos,
     resumo_dashboard_admin,
     listar_clientes_paginado,
+    obter_estatisticas_cliente,
     buscar_produto,
     adicionar_login,
     adicionar_varios_logins,
@@ -3262,10 +3263,18 @@ async def mostrar_ficha_cliente(
 
     _id, nome, username, saldo = usuario
     limite = obter_limite_credito(cliente_id)
+    stats = obter_estatisticas_cliente(cliente_id)
 
     username_texto = (
         f"@{username}" if username else "Não informado"
     )
+
+    if stats["ultima_compra"]:
+        ultima_compra_texto = str(
+            stats["ultima_compra"]
+        )[:16]
+    else:
+        ultima_compra_texto = "Nenhuma compra ainda"
 
     texto = (
         "👤 *FICHA DO CLIENTE*\n\n"
@@ -3275,6 +3284,13 @@ async def mostrar_ficha_cliente(
         f"🔗 *Username:* {username_texto}\n"
         f"💵 *Saldo:* R$ {float(saldo or 0):.2f}\n"
         f"💳 *Limite de crédito:* R$ {limite:.2f}\n"
+        "━━━━━━━━━━━━━━━━━━\n"
+        f"🛍️ *Total de compras:* "
+        f"{stats['total_pedidos']}\n"
+        f"💰 *Total já gasto:* "
+        f"R$ {stats['total_gasto']:.2f}\n"
+        f"📅 *Última compra:* "
+        f"{ultima_compra_texto}\n"
         "━━━━━━━━━━━━━━━━━━"
     )
 
