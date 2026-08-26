@@ -880,6 +880,113 @@ def listar_clientes_paginado(
     return clientes, int(total or 0)
 
 
+def listar_pedidos_cliente(
+    usuario_id,
+    pagina=0,
+    por_pagina=10,
+):
+    """Histórico de compras de UM cliente específico,
+    paginado (mais recente primeiro). Retorna
+    (pedidos, total) — só pedidos já pagos/entregues."""
+
+    conn = conectar()
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        SELECT COUNT(*)
+        FROM pedidos
+        WHERE usuario_id = ?
+        AND status = 'pago'
+    """, (
+        usuario_id,
+    ))
+    total = cursor.fetchone()[0]
+
+    cursor.execute("""
+        SELECT
+            p.id,
+            pr.nome,
+            p.quantidade,
+            p.valor,
+            p.criado_em
+        FROM pedidos p
+        JOIN produtos pr ON pr.id = p.produto_id
+        WHERE p.usuario_id = ?
+        AND p.status = 'pago'
+        ORDER BY p.criado_em DESC
+        LIMIT ? OFFSET ?
+    """, (
+        usuario_id,
+        por_pagina,
+        pagina * por_pagina,
+    ))
+
+    pedidos = cursor.fetchall()
+
+    conn.close()
+
+    return pedidos, int(total or 0)
+
+
+def obter_detalhes_pedido(
+    pedido_id,
+    usuario_id,
+):
+    """Detalhes de UM pedido específico, incluindo os dados
+    de acesso (logins) entregues nele. Sempre exige o
+    usuario_id do dono do pedido — um cliente nunca consegue
+    ver o pedido de outra pessoa, mesmo sabendo o ID."""
+
+    conn = conectar()
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        SELECT
+            p.id,
+            pr.nome,
+            p.quantidade,
+            p.valor,
+            p.criado_em
+        FROM pedidos p
+        JOIN produtos pr ON pr.id = p.produto_id
+        WHERE p.id = ?
+        AND p.usuario_id = ?
+        AND p.status = 'pago'
+    """, (
+        pedido_id,
+        usuario_id,
+    ))
+
+    pedido = cursor.fetchone()
+
+    if not pedido:
+        conn.close()
+        return None
+
+    cursor.execute("""
+        SELECT dados
+        FROM logins
+        WHERE pedido_id = ?
+        AND usuario_id = ?
+    """, (
+        pedido_id,
+        usuario_id,
+    ))
+
+    contas = [linha[0] for linha in cursor.fetchall()]
+
+    conn.close()
+
+    return {
+        "id": pedido[0],
+        "nome_produto": pedido[1],
+        "quantidade": pedido[2],
+        "valor": pedido[3],
+        "criado_em": pedido[4],
+        "contas": contas,
+    }
+
+
 def consultar_saldo(user_id):
 
     usuario = consultar_usuario(user_id)
