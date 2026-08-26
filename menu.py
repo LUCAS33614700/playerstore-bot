@@ -42,8 +42,8 @@ def menu_principal():
         # SERVIÇOS
         [
             InlineKeyboardButton(
-                "🎮 ATIVAÇÃO DE MAC",
-                callback_data="ativacao_mac"
+                "📜 HISTÓRICO DE COMPRAS",
+                callback_data="historico_compras_0"
             ),
             InlineKeyboardButton(
                 "⚽ JOGOS NA TV",
