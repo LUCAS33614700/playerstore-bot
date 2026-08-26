@@ -843,6 +843,43 @@ def consultar_usuario(user_id):
     return usuario
 
 
+def listar_clientes_paginado(
+    pagina=0,
+    por_pagina=10,
+):
+    """Retorna uma FATIA de clientes (não todos de uma vez)
+    — importante pra continuar rápido mesmo com milhares de
+    clientes cadastrados. Retorna (clientes, total)."""
+
+    conn = conectar()
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        SELECT COUNT(*) FROM usuarios
+    """)
+    total = cursor.fetchone()[0]
+
+    cursor.execute("""
+        SELECT
+            id,
+            nome,
+            username,
+            saldo
+        FROM usuarios
+        ORDER BY id DESC
+        LIMIT ? OFFSET ?
+    """, (
+        por_pagina,
+        pagina * por_pagina,
+    ))
+
+    clientes = cursor.fetchall()
+
+    conn.close()
+
+    return clientes, int(total or 0)
+
+
 def consultar_saldo(user_id):
 
     usuario = consultar_usuario(user_id)
