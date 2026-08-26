@@ -37,6 +37,8 @@ from config import (
 from database import (
     criar_tabelas,
     criar_usuario,
+    listar_pedidos_cliente,
+    obter_detalhes_pedido,
     consultar_usuario,
     consultar_saldo,
     conectar,
@@ -3190,6 +3192,198 @@ async def renovar_conta(
 
 
 # =========================================================
+# HISTÓRICO DE COMPRAS
+# =========================================================
+
+async def mostrar_historico_compras(
+    query,
+    context,
+    pagina=0,
+):
+    usuario_id = query.from_user.id
+
+    POR_PAGINA = 10
+
+    pedidos, total = listar_pedidos_cliente(
+        usuario_id,
+        pagina=pagina,
+        por_pagina=POR_PAGINA,
+    )
+
+    if total == 0:
+        await editar_ou_substituir(
+            query,
+            context,
+            "📜 *HISTÓRICO DE COMPRAS*\n\n"
+            "Você ainda não fez nenhuma compra.",
+            reply_markup=InlineKeyboardMarkup(
+                [
+                    [
+                        InlineKeyboardButton(
+                            "⬅️ VOLTAR AO MENU",
+                            callback_data="voltar_menu",
+                        )
+                    ]
+                ]
+            ),
+            parse_mode="Markdown",
+        )
+        return
+
+    total_paginas = max(
+        1,
+        (total + POR_PAGINA - 1) // POR_PAGINA,
+    )
+
+    pagina_atual = max(
+        0, min(pagina, total_paginas - 1)
+    )
+
+    linhas_botoes = []
+
+    for (
+        pedido_id,
+        nome_produto,
+        quantidade,
+        valor,
+        criado_em,
+    ) in pedidos:
+
+        data_formatada = str(criado_em)[:10]
+
+        linhas_botoes.append([
+            InlineKeyboardButton(
+                f"{data_formatada} — {nome_produto} "
+                f"(R$ {float(valor):.2f})",
+                callback_data=(
+                    f"ver_pedido_{pedido_id}"
+                ),
+            )
+        ])
+
+    botoes_navegacao = []
+
+    if pagina_atual > 0:
+        botoes_navegacao.append(
+            InlineKeyboardButton(
+                "⬅️ Anterior",
+                callback_data=(
+                    "historico_compras_"
+                    f"{pagina_atual - 1}"
+                ),
+            )
+        )
+
+    if pagina_atual < total_paginas - 1:
+        botoes_navegacao.append(
+            InlineKeyboardButton(
+                "Próxima ➡️",
+                callback_data=(
+                    "historico_compras_"
+                    f"{pagina_atual + 1}"
+                ),
+            )
+        )
+
+    if botoes_navegacao:
+        linhas_botoes.append(botoes_navegacao)
+
+    linhas_botoes.append([
+        InlineKeyboardButton(
+            "⬅️ VOLTAR AO MENU",
+            callback_data="voltar_menu",
+        )
+    ])
+
+    await editar_ou_substituir(
+        query,
+        context,
+        "📜 *HISTÓRICO DE COMPRAS*\n\n"
+        f"🛍️ Total: {total} compra(s)\n"
+        f"📄 Página {pagina_atual + 1} de "
+        f"{total_paginas}\n\n"
+        "Toque em uma compra pra ver os dados "
+        "de acesso novamente:",
+        reply_markup=InlineKeyboardMarkup(
+            linhas_botoes
+        ),
+        parse_mode="Markdown",
+    )
+
+
+async def mostrar_detalhes_pedido(
+    query,
+    context,
+    pedido_id,
+):
+    usuario_id = query.from_user.id
+
+    detalhes = obter_detalhes_pedido(
+        pedido_id,
+        usuario_id,
+    )
+
+    if not detalhes:
+        await query.answer(
+            "❌ Pedido não encontrado.",
+            show_alert=True,
+        )
+        return
+
+    texto_contas = ""
+
+    for indice, dados in enumerate(
+        detalhes["contas"], start=1
+    ):
+        texto_contas += (
+            f"\n🔐 *Conta {indice}*\n"
+            f"```\n{dados}\n```\n"
+        )
+
+    if not texto_contas:
+        texto_contas = (
+            "\n⚠️ Nenhum dado de acesso "
+            "encontrado pra essa compra — "
+            "fale com o suporte se precisar "
+            "de ajuda.\n"
+        )
+
+    data_formatada = str(
+        detalhes["criado_em"]
+    )[:16]
+
+    await editar_ou_substituir(
+        query,
+        context,
+        "🧾 *DETALHES DA COMPRA*\n\n"
+        "━━━━━━━━━━━━━━━━━━\n"
+        f"🛒 *Produto:* "
+        f"{detalhes['nome_produto']}\n"
+        f"📦 *Quantidade:* "
+        f"{detalhes['quantidade']}\n"
+        f"💵 *Valor pago:* "
+        f"R$ {float(detalhes['valor']):.2f}\n"
+        f"📅 *Data:* {data_formatada}\n"
+        "━━━━━━━━━━━━━━━━━━\n"
+        "🎁 *DADOS DE ACESSO*"
+        f"{texto_contas}",
+        reply_markup=InlineKeyboardMarkup(
+            [
+                [
+                    InlineKeyboardButton(
+                        "⬅️ VOLTAR AO HISTÓRICO",
+                        callback_data=(
+                            "historico_compras_0"
+                        ),
+                    )
+                ]
+            ]
+        ),
+        parse_mode="Markdown",
+    )
+
+
+# =========================================================
 # JOGOS NA TV
 # =========================================================
 
@@ -4843,6 +5037,46 @@ async def botoes(
         await mostrar_jogos_tv(
             query,
             context,
+        )
+        return
+
+    if acao.startswith("historico_compras_"):
+
+        pagina_texto = acao.replace(
+            "historico_compras_", ""
+        )
+
+        try:
+            pagina = int(pagina_texto)
+        except ValueError:
+            pagina = 0
+
+        await mostrar_historico_compras(
+            query,
+            context,
+            pagina=pagina,
+        )
+        return
+
+    if acao.startswith("ver_pedido_"):
+
+        pedido_id_texto = acao.replace(
+            "ver_pedido_", ""
+        )
+
+        try:
+            pedido_id = int(pedido_id_texto)
+        except ValueError:
+            await query.answer(
+                "❌ Pedido inválido.",
+                show_alert=True,
+            )
+            return
+
+        await mostrar_detalhes_pedido(
+            query,
+            context,
+            pedido_id,
         )
         return
 
