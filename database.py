@@ -2521,6 +2521,88 @@ def retirar_login_disponivel(
         raise
 
 
+def liberar_logins_pedido(
+    pedido_id,
+):
+    """Devolve ao estoque as contas que já tinham sido
+    retiradas (status 'vendido') para um pedido que acabou
+    sendo cancelado por falha na entrega (ex: estoque
+    esgotou no meio de uma compra com quantidade > 1 ou de
+    um carrinho com vários itens). Sem isso, essas contas
+    ficavam presas — marcadas como vendidas para um pedido
+    cancelado, sem ninguém ter recebido os dados delas."""
+
+    if not pedido_id:
+        return 0
+
+    conn = conectar()
+    cursor = conn.cursor()
+
+    try:
+        cursor.execute(
+            "BEGIN IMMEDIATE"
+        )
+
+        cursor.execute("""
+            SELECT id, produto_id
+            FROM logins
+            WHERE pedido_id = ?
+            AND status = 'vendido'
+        """, (
+            pedido_id,
+        ))
+
+        logins_presos = cursor.fetchall()
+
+        if not logins_presos:
+            conn.rollback()
+            conn.close()
+            return 0
+
+        cursor.execute("""
+            UPDATE logins
+            SET status = 'disponivel',
+                usuario_id = NULL,
+                pedido_id = NULL,
+                vendido_em = NULL
+            WHERE pedido_id = ?
+            AND status = 'vendido'
+        """, (
+            pedido_id,
+        ))
+
+        liberados = cursor.rowcount
+
+        # Devolve a contagem de estoque por produto (pode
+        # haver produtos diferentes num pedido de carrinho).
+        contagem_por_produto = {}
+
+        for _login_id, produto_id in logins_presos:
+            contagem_por_produto[produto_id] = (
+                contagem_por_produto.get(produto_id, 0) + 1
+            )
+
+        for produto_id, quantidade in contagem_por_produto.items():
+            cursor.execute("""
+                UPDATE produtos
+                SET estoque = estoque + ?
+                WHERE id = ?
+            """, (
+                quantidade,
+                produto_id,
+            ))
+
+        conn.commit()
+        conn.close()
+
+        return liberados
+
+    except Exception:
+        conn.rollback()
+        conn.close()
+        raise
+
+
 def listar_contas_usuario(
     usuario_id,
 ):
@@ -3126,6 +3208,31 @@ def atualizar_status_pagamento(
     conn.close()
 
     return alterado
+
+
+def contar_pagamentos_pendentes_usuario(
+    usuario_id,
+):
+    """Quantos PIX o cliente já gerou e ainda não pagou.
+    Usado pra limitar geração de PIX em excesso."""
+
+    conn = conectar()
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        SELECT COUNT(*)
+        FROM pagamentos
+        WHERE usuario_id = ?
+        AND status = 'pendente'
+    """, (
+        usuario_id,
+    ))
+
+    total = cursor.fetchone()[0]
+
+    conn.close()
+
+    return int(total or 0)
 
 
 def listar_pagamentos_pendentes():
