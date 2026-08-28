@@ -45,11 +45,13 @@ from database import (
     retirar_saldo,
     adicionar_saldo,
     criar_pagamento,
+    contar_pagamentos_pendentes_usuario,
     consultar_pagamento,
     atualizar_status_pagamento,
     listar_pagamentos_pendentes,
     processar_pagamento_pago,
     retirar_login_disponivel,
+    liberar_logins_pedido,
     listar_todos_produtos,
     consultar_estoque_logins,
     buscar_categoria,
@@ -1258,8 +1260,6 @@ async def comprar_produto(
     except Exception as erro:
         log_erro("ERRO NA ENTREGA:", repr(erro))
 
-        adicionar_saldo(usuario_id, valor_total)
-
         try:
             conn = conectar()
             cursor = conn.cursor()
@@ -1275,6 +1275,16 @@ async def comprar_produto(
             conn.close()
         except Exception as erro_db:
             log_erro("ERRO AO CANCELAR PEDIDO:", repr(erro_db))
+
+        try:
+            liberar_logins_pedido(pedido_id)
+        except Exception as erro_liberar:
+            log_erro(
+                "ERRO AO LIBERAR LOGINS DO PEDIDO:",
+                repr(erro_liberar),
+            )
+
+        adicionar_saldo(usuario_id, valor_total)
 
         await editar_ou_substituir(
             query,
@@ -1847,10 +1857,24 @@ async def processar_valor_saldo(
 
     valor = round(valor, 2)
 
+    usuario = update.effective_user
+
+    LIMITE_PIX_PENDENTES = 3
+
+    pendentes = contar_pagamentos_pendentes_usuario(
+        usuario.id
+    )
+
+    if pendentes >= LIMITE_PIX_PENDENTES:
+        await update.message.reply_text(
+            "❌ Você já tem PIX pendentes demais.\n\n"
+            "Pague ou aguarde a expiração dos PIX "
+            "gerados antes de criar um novo."
+        )
+        return
+
     context.user_data["valor_saldo"] = valor
     context.user_data["aguardando_valor"] = False
-
-    usuario = update.effective_user
 
     mensagem = await update.message.reply_text(
         "⏳ *Gerando seu PIX...*",
@@ -3821,6 +3845,7 @@ async def finalizar_compra_carrinho(
 
     entregas = []
     falhou = False
+    pedidos_criados = []
 
     for item in itens:
 
@@ -3859,6 +3884,8 @@ async def finalizar_compra_carrinho(
             pedido_id = cursor.lastrowid
             conn.commit()
             conn.close()
+
+            pedidos_criados.append(pedido_id)
 
         except Exception as erro:
             log_erro(
@@ -3914,6 +3941,35 @@ async def finalizar_compra_carrinho(
         )
 
     if falhou:
+
+        try:
+            conn = conectar()
+            cursor = conn.cursor()
+            for pedido_id_falho in pedidos_criados:
+                cursor.execute(
+                    """
+                    UPDATE pedidos
+                    SET status = 'cancelado'
+                    WHERE id = ?
+                    """,
+                    (pedido_id_falho,),
+                )
+            conn.commit()
+            conn.close()
+        except Exception as erro_db:
+            log_erro(
+                "ERRO AO CANCELAR PEDIDOS DO CARRINHO:",
+                repr(erro_db),
+            )
+
+        for pedido_id_falho in pedidos_criados:
+            try:
+                liberar_logins_pedido(pedido_id_falho)
+            except Exception as erro_liberar:
+                log_erro(
+                    "ERRO AO LIBERAR LOGINS DO CARRINHO:",
+                    repr(erro_liberar),
+                )
 
         adicionar_saldo(
             usuario_id,
