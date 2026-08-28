@@ -1,4 +1,5 @@
 import asyncio
+from datetime import datetime, timedelta
 
 from telegram import (
     InlineKeyboardButton,
@@ -50,6 +51,12 @@ from log import log_info, log_erro
 
 INTERVALO_VERIFICACAO = 5
 
+# Tempo máximo que um PIX fica pendente antes do próprio
+# bot cancelar, mesmo sem confirmação da PushinPay. Evita
+# PIX "esquecido" ficar pendente por horas e travando o
+# limite de PIX pendentes por cliente.
+TIMEOUT_PIX_MINUTOS = 15
+
 VERIFICADOR_TASK = "verificador_pagamentos_task"
 VERIFICADOR_VENCIMENTOS_TASK = "verificador_vencimentos_task"
 RELATORIO_VENDAS_TASK = "relatorio_vendas_task"
@@ -77,6 +84,58 @@ async def _verificar_um_pagamento(
             status_banco,
             criado_em,
         ) = pagamento
+
+        # -------------------------------------------------
+        # EXPIRAÇÃO PRÓPRIA (por tempo), independente da
+        # PushinPay. Se o cliente gerou o PIX e não pagou
+        # dentro do prazo, cancelamos aqui mesmo sem
+        # precisar esperar a confirmação da API.
+        # -------------------------------------------------
+        pix_vencido = False
+
+        try:
+            if criado_em:
+                momento_criacao = datetime.strptime(
+                    str(criado_em)[:19],
+                    "%Y-%m-%d %H:%M:%S",
+                )
+
+                if datetime.utcnow() - momento_criacao >= timedelta(
+                    minutes=TIMEOUT_PIX_MINUTOS
+                ):
+                    pix_vencido = True
+        except Exception as erro_data:
+            log_erro(
+                "ERRO AO CALCULAR EXPIRAÇÃO DO PIX:",
+                repr(erro_data),
+            )
+
+        if pix_vencido:
+            atualizado = atualizar_status_pagamento(
+                transacao_id,
+                "cancelado",
+            )
+
+            if atualizado:
+                try:
+                    await context.bot.send_message(
+                        chat_id=usuario_id,
+                        text=(
+                            "⏰ *PIX expirado!*\n\n"
+                            "O código PIX venceu e foi "
+                            "removido. Gere um novo se "
+                            "ainda quiser depositar."
+                        ),
+                        reply_markup=menu_principal(),
+                        parse_mode="Markdown",
+                    )
+                except Exception as erro_envio:
+                    log_erro(
+                        "ERRO AO ENVIAR EXPIRAÇÃO:",
+                        repr(erro_envio),
+                    )
+
+            return
 
         transacao = await asyncio.to_thread(
             consultar_pix,
