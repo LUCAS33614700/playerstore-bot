@@ -360,6 +360,28 @@ def menu_admin():
         else "🟢 MANUTENÇÃO: DESLIGADA (tocar p/ ligar)"
     )
 
+    chat_suporte_ativo = (
+        obter_configuracao("chat_suporte_ativo", "1")
+        == "1"
+    )
+
+    grupo_suporte_ativo = (
+        obter_configuracao("grupo_suporte_ativo", "1")
+        == "1"
+    )
+
+    label_chat_suporte = (
+        "🆘 CHAT DE SUPORTE"
+        if chat_suporte_ativo
+        else "🆘 CHAT DE SUPORTE (DESATIVADO)"
+    )
+
+    label_grupo_suporte = (
+        "🗂️ GRUPO DE SUPORTE (TÓPICOS)"
+        if grupo_suporte_ativo
+        else "🗂️ GRUPO DE SUPORTE (DESATIVADO)"
+    )
+
     botoes = [
 
         [
@@ -413,14 +435,14 @@ def menu_admin():
 
         [
             InlineKeyboardButton(
-                "🆘 CHAT DE SUPORTE",
+                label_chat_suporte,
                 callback_data="admin_chat_suporte",
             )
         ],
 
         [
             InlineKeyboardButton(
-                "🗂️ GRUPO DE SUPORTE (TÓPICOS)",
+                label_grupo_suporte,
                 callback_data="admin_grupo_suporte",
             )
         ],
@@ -3719,6 +3741,11 @@ async def iniciar_grupo_suporte(
         "suporte_grupo_id"
     )
 
+    grupo_suporte_ativo = (
+        obter_configuracao("grupo_suporte_ativo", "1")
+        == "1"
+    )
+
     texto = (
         "🗂️ *GRUPO DE SUPORTE (TÓPICOS)*\n\n"
         "Cada cliente que abrir um ticket "
@@ -3751,12 +3778,24 @@ async def iniciar_grupo_suporte(
             "conta admin padrão.\n\n"
         )
 
+    texto += (
+        "🔘 *Status:* "
+        + ("✅ ativado" if grupo_suporte_ativo else "❌ desativado")
+        + "\n\n"
+    )
+
     texto += "⬅️ Para cancelar, clique no botão abaixo."
 
     await query.edit_message_text(
         texto,
         reply_markup=InlineKeyboardMarkup(
             [
+                [
+                    InlineKeyboardButton(
+                        "❌ DESATIVAR" if grupo_suporte_ativo else "✅ ATIVAR",
+                        callback_data="admin_toggle_grupo_suporte",
+                    )
+                ],
                 [
                     InlineKeyboardButton(
                         "❌ CANCELAR",
@@ -3877,12 +3916,29 @@ async def iniciar_chat_suporte(
             "admin padrão.\n\n"
         )
 
+    chat_suporte_ativo = (
+        obter_configuracao("chat_suporte_ativo", "1")
+        == "1"
+    )
+
+    texto += (
+        "🔘 *Status:* "
+        + ("✅ ativado" if chat_suporte_ativo else "❌ desativado")
+        + "\n\n"
+    )
+
     texto += "⬅️ Para cancelar, clique no botão abaixo."
 
     await query.edit_message_text(
         texto,
         reply_markup=InlineKeyboardMarkup(
             [
+                [
+                    InlineKeyboardButton(
+                        "❌ DESATIVAR" if chat_suporte_ativo else "✅ ATIVAR",
+                        callback_data="admin_toggle_chat_suporte",
+                    )
+                ],
                 [
                     InlineKeyboardButton(
                         "❌ CANCELAR",
@@ -4591,7 +4647,61 @@ async def botoes_admin(
 
         return
 
+    if acao == "admin_toggle_chat_suporte":
+
+        atual = obter_configuracao(
+            "chat_suporte_ativo", "1"
+        )
+
+        novo = "0" if atual == "1" else "1"
+
+        definir_configuracao(
+            "chat_suporte_ativo",
+            novo,
+        )
+
+        await query.answer(
+            "❌ Chat de suporte desativado."
+            if novo == "0"
+            else "✅ Chat de suporte ativado.",
+            show_alert=True,
+        )
+
+        await iniciar_chat_suporte(
+            query,
+            context,
+        )
+
+        return
+
     if acao == "admin_grupo_suporte":
+
+        await iniciar_grupo_suporte(
+            query,
+            context,
+        )
+
+        return
+
+    if acao == "admin_toggle_grupo_suporte":
+
+        atual = obter_configuracao(
+            "grupo_suporte_ativo", "1"
+        )
+
+        novo = "0" if atual == "1" else "1"
+
+        definir_configuracao(
+            "grupo_suporte_ativo",
+            novo,
+        )
+
+        await query.answer(
+            "❌ Grupo de suporte desativado."
+            if novo == "0"
+            else "✅ Grupo de suporte ativado.",
+            show_alert=True,
+        )
 
         await iniciar_grupo_suporte(
             query,

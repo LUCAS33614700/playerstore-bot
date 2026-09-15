@@ -2519,11 +2519,16 @@ async def processar_suporte(
         "suporte_grupo_id"
     )
 
+    grupo_suporte_ativo = (
+        obter_configuracao("grupo_suporte_ativo", "1")
+        == "1"
+    )
+
     # -----------------------------------------------------
     # CAMINHO 1: GRUPO DE SUPORTE COM TÓPICOS (HELPDESK)
     # -----------------------------------------------------
 
-    if grupo_suporte_id:
+    if grupo_suporte_id and grupo_suporte_ativo:
 
         try:
             grupo_id_int = int(grupo_suporte_id)
@@ -2620,10 +2625,16 @@ async def processar_suporte(
         "mensagem com a resposta (texto ou foto)."
     )
 
+    chat_suporte_ativo = (
+        obter_configuracao("chat_suporte_ativo", "1")
+        == "1"
+    )
+
     destino = (
         obter_configuracao("suporte_chat_id")
-        or ADMIN_ID
-    )
+        if chat_suporte_ativo
+        else None
+    ) or ADMIN_ID
 
     try:
         await update.message.forward(
