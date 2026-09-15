@@ -1652,6 +1652,24 @@ def obter_topico_suporte(
     return None
 
 
+def remover_topico_suporte(
+    usuario_id,
+):
+
+    conn = conectar()
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        DELETE FROM suporte_topicos
+        WHERE usuario_id = ?
+    """, (
+        usuario_id,
+    ))
+
+    conn.commit()
+    conn.close()
+
+
 def obter_usuario_por_topico(
     topico_id,
 ):

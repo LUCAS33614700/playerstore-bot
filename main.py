@@ -65,6 +65,7 @@ from database import (
     contar_compras_usuario,
     salvar_topico_suporte,
     obter_topico_suporte,
+    remover_topico_suporte,
     obter_usuario_por_topico,
     usuario_ja_recebeu_lembrete,
     marcar_lembrete_enviado,
@@ -2541,76 +2542,103 @@ async def processar_suporte(
                 usuario.id
             )
 
-            try:
+            for tentativa in (1, 2):
 
-                if not topico_id:
+                try:
 
-                    nome_topico = (
-                        f"{nome} "
-                        f"(@{usuario.username or 'sem_user'}) "
-                        f"#{usuario.id}"
-                    )
+                    if not topico_id:
 
-                    topico = await context.bot.create_forum_topic(
-                        chat_id=grupo_id_int,
-                        name=nome_topico[:128],
-                    )
+                        nome_topico = (
+                            f"{nome} "
+                            f"(@{usuario.username or 'sem_user'}) "
+                            f"#{usuario.id}"
+                        )
 
-                    topico_id = (
-                        topico.message_thread_id
-                    )
+                        topico = await context.bot.create_forum_topic(
+                            chat_id=grupo_id_int,
+                            name=nome_topico[:128],
+                        )
 
-                    salvar_topico_suporte(
-                        usuario.id,
-                        topico_id,
-                    )
+                        topico_id = (
+                            topico.message_thread_id
+                        )
 
-                    await context.bot.send_message(
+                        salvar_topico_suporte(
+                            usuario.id,
+                            topico_id,
+                        )
+
+                        await context.bot.send_message(
+                            chat_id=grupo_id_int,
+                            message_thread_id=topico_id,
+                            text=(
+                                "📩 *NOVO TICKET*\n\n"
+                                f"👤 Nome: {nome}\n"
+                                f"🔗 Username: {username_texto}\n"
+                                f"🆔 ID: `{usuario.id}`\n\n"
+                                "Responda direto aqui neste "
+                                "tópico — a mensagem vai "
+                                "pro cliente automaticamente."
+                            ),
+                            parse_mode="Markdown",
+                        )
+
+                    await update.message.forward(
                         chat_id=grupo_id_int,
                         message_thread_id=topico_id,
-                        text=(
-                            "📩 *NOVO TICKET*\n\n"
-                            f"👤 Nome: {nome}\n"
-                            f"🔗 Username: {username_texto}\n"
-                            f"🆔 ID: `{usuario.id}`\n\n"
-                            "Responda direto aqui neste "
-                            "tópico — a mensagem vai "
-                            "pro cliente automaticamente."
+                    )
+
+                    await update.message.reply_text(
+                        "✅ *Mensagem enviada ao suporte!*\n\n"
+                        "Nossa equipe vai responder por "
+                        "aqui mesmo assim que possível.",
+                        reply_markup=InlineKeyboardMarkup(
+                            [
+                                [
+                                    InlineKeyboardButton(
+                                        "↩️ Voltar ao menu",
+                                        callback_data="voltar_menu",
+                                    )
+                                ]
+                            ]
                         ),
                         parse_mode="Markdown",
                     )
 
-                await update.message.forward(
-                    chat_id=grupo_id_int,
-                    message_thread_id=topico_id,
-                )
+                    return True
 
-                await update.message.reply_text(
-                    "✅ *Mensagem enviada ao suporte!*\n\n"
-                    "Nossa equipe vai responder por "
-                    "aqui mesmo assim que possível.",
-                    reply_markup=InlineKeyboardMarkup(
-                        [
-                            [
-                                InlineKeyboardButton(
-                                    "↩️ Voltar ao menu",
-                                    callback_data="voltar_menu",
-                                )
-                            ]
-                        ]
-                    ),
-                    parse_mode="Markdown",
-                )
+                except Exception as erro:
 
-                return True
+                    erro_texto = str(erro).lower()
 
-            except Exception as erro:
-                log_erro(
-                    "ERRO NO GRUPO DE SUPORTE COM "
-                    "TÓPICOS:",
-                    repr(erro),
-                )
-                # Cai pro caminho antigo abaixo.
+                    topico_invalido = (
+                        "thread not found" in erro_texto
+                        or "topic_closed" in erro_texto
+                        or "topic_deleted" in erro_texto
+                    )
+
+                    if (
+                        topico_invalido
+                        and tentativa == 1
+                        and topico_id
+                    ):
+                        # O tópico salvo não existe mais
+                        # no grupo (foi apagado/recriado).
+                        # Limpa e tenta de novo criando um
+                        # tópico novo.
+                        remover_topico_suporte(
+                            usuario.id
+                        )
+                        topico_id = None
+                        continue
+
+                    log_erro(
+                        "ERRO NO GRUPO DE SUPORTE COM "
+                        "TÓPICOS:",
+                        repr(erro),
+                    )
+                    # Cai pro caminho antigo abaixo.
+                    break
 
     # -----------------------------------------------------
     # CAMINHO 2 (FALLBACK): CHAT INDIVIDUAL
