@@ -610,13 +610,8 @@ async def enviar_relatorio_vendas(
             24 * 7
         )
 
-        destino = (
-            obter_configuracao("suporte_chat_id")
-            or ADMIN_ID
-        )
-
         await bot.send_message(
-            chat_id=destino,
+            chat_id=ADMIN_ID,
             text=(
                 "📊 *RELATÓRIO DE VENDAS*\n\n"
                 "━━━━━━━━━━━━━━━━━━\n"

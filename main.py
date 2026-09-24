@@ -349,13 +349,8 @@ async def verificar_estoque_baixo(
                 estoque_atual,
             )
 
-        destino = (
-            obter_configuracao("suporte_chat_id")
-            or ADMIN_ID
-        )
-
         await bot.send_message(
-            chat_id=destino,
+            chat_id=ADMIN_ID,
             text=(
                 "📉 *ESTOQUE BAIXO*\n\n"
                 f"📦 *Produto:* {nome_produto}\n"
