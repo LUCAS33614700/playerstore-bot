@@ -2815,6 +2815,17 @@ async def comando_backup(
     if not eh_admin_principal(usuario.id):
         return
 
+    if update.effective_chat.type != "private":
+
+        await update.message.reply_text(
+            "❌ Por segurança, o /backup só funciona "
+            "no seu chat privado com o bot (ele manda "
+            "o banco inteiro, com senhas e saldo dos "
+            "clientes). Chame de novo aqui no privado."
+        )
+
+        return
+
     from config import DATABASE_NAME
     import os as _os
 
