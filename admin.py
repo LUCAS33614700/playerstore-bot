@@ -555,6 +555,10 @@ def limpar_estado(context):
         "admin_novo_preco"
     ] = None
 
+    context.user_data.pop(
+        "add_contas_pendentes", None
+    )
+
 
 # =========================================================
 # VERIFICAR ACESSO
@@ -809,6 +813,107 @@ async def admin_detalhes_produto(
 # ADICIONAR CONTA
 # =========================================================
 
+async def _finalizar_adicionar_contas(
+    query,
+    context,
+    produto_id,
+    contas,
+):
+    """
+    Grava de fato as contas no estoque (já filtradas antes,
+    seja só as novas ou todas mesmo com duplicata) e mostra
+    o resultado. Reaproveitada pelos dois botões de
+    confirmação do cadastro.
+    """
+
+    produto = buscar_produto(produto_id)
+
+    if not produto:
+
+        await query.edit_message_text(
+            "❌ Produto não encontrado — o cadastro foi "
+            "cancelado."
+        )
+
+        return
+
+    nome = produto[1]
+    preco = produto[3]
+
+    if len(contas) > 1:
+
+        quantidade_adicionada = adicionar_varios_logins(
+            produto_id,
+            contas,
+        )
+
+        resumo_id = (
+            f"🔢 *Contas adicionadas:* "
+            f"{quantidade_adicionada}"
+        )
+
+    else:
+
+        login_id = adicionar_login(
+            produto_id,
+            contas[0],
+        )
+
+        quantidade_adicionada = 1
+
+        resumo_id = f"🆔 *ID da conta:* `{login_id}`"
+
+    estoque = consultar_estoque_logins(produto_id)
+
+    await anunciar_abastecimento_grupo(
+        context,
+        produto_id,
+        nome,
+        float(preco),
+        quantidade_adicionada,
+    )
+
+    await notificar_reposicao_estoque(
+        context,
+        produto_id,
+        nome,
+    )
+
+    await query.edit_message_text(
+        "✅ *CONTA(S) ADICIONADA(S)!*\n\n"
+        f"📦 *Produto:* {nome}\n"
+        f"{resumo_id}\n"
+        f"📊 *Contas disponíveis:* {estoque}",
+        reply_markup=InlineKeyboardMarkup(
+            [
+                [
+                    InlineKeyboardButton(
+                        "➕ ADICIONAR OUTRA",
+                        callback_data=(
+                            f"admin_add_login_{produto_id}"
+                        ),
+                    )
+                ],
+                [
+                    InlineKeyboardButton(
+                        "📦 GERENCIAR PRODUTO",
+                        callback_data=(
+                            f"admin_produto_{produto_id}"
+                        ),
+                    )
+                ],
+                [
+                    InlineKeyboardButton(
+                        "👑 PAINEL ADMIN",
+                        callback_data="admin_menu",
+                    )
+                ],
+            ]
+        ),
+        parse_mode="Markdown",
+    )
+
+
 async def iniciar_adicionar_conta(
     query,
     context,
@@ -926,6 +1031,66 @@ def dividir_contas_do_texto(texto):
     ]
 
 
+def _normalizar_conta_texto(dados):
+    """
+    Normaliza um bloco de conta pra comparação de
+    duplicidade: remove espaços nas pontas de cada linha
+    e linhas em branco extras. Mantém maiúsculas/minúsculas
+    (senha é case-sensitive), só ignora espaçamento.
+    """
+    linhas = [
+        linha.strip()
+        for linha in str(dados).strip().splitlines()
+        if linha.strip()
+    ]
+
+    return "\n".join(linhas)
+
+
+def _separar_novas_e_duplicadas(
+    produto_id,
+    contas,
+):
+    """
+    Recebe os blocos de conta já divididos e devolve
+    (novas, duplicadas), onde duplicadas é uma lista de
+    (bloco, motivo) com motivo em "repetida no texto colado"
+    ou "já está no estoque".
+
+    A ordem das "novas" preserva a primeira ocorrência de
+    cada bloco (se o mesmo bloco aparecer 2x no texto colado,
+    só a primeira vai pra "novas").
+    """
+    existentes = {
+        _normalizar_conta_texto(dados)
+        for _, dados in listar_logins_disponiveis(produto_id)
+    }
+
+    vistos_no_texto = set()
+    novas = []
+    duplicadas = []
+
+    for bloco in contas:
+        chave = _normalizar_conta_texto(bloco)
+
+        if chave in vistos_no_texto:
+            duplicadas.append(
+                (bloco, "repetida no texto colado")
+            )
+            continue
+
+        if chave in existentes:
+            duplicadas.append(
+                (bloco, "já está no estoque")
+            )
+            continue
+
+        vistos_no_texto.add(chave)
+        novas.append(bloco)
+
+    return novas, duplicadas
+
+
 # =========================================================
 # PROCESSAR ADIÇÃO DE CONTA
 # =========================================================
@@ -1001,86 +1166,100 @@ async def processar_admin_texto(
         contas = dividir_contas_do_texto(texto)
 
         nome = produto[1]
-        preco = produto[3]
 
-        if len(contas) > 1:
+        novas, duplicadas = _separar_novas_e_duplicadas(
+            produto_id,
+            contas,
+        )
 
-            quantidade_adicionada = (
-                adicionar_varios_logins(
-                    produto_id,
-                    contas,
+        context.user_data["add_contas_pendentes"] = {
+            "produto_id": produto_id,
+            "novas": novas,
+            "duplicadas": [bloco for bloco, _ in duplicadas],
+        }
+
+        context.user_data["admin_acao"] = None
+
+        texto_resumo = (
+            "➕ *CONFIRMAR CADASTRO*\n\n"
+            f"📦 *Produto:* {nome}\n\n"
+            f"🔢 Blocos encontrados: {len(contas)}\n"
+            f"🆕 Novas: {len(novas)}\n"
+        )
+
+        if duplicadas:
+
+            texto_resumo += (
+                f"⚠️ Possíveis duplicadas: "
+                f"{len(duplicadas)}\n\n"
+            )
+
+            for bloco, motivo in duplicadas[:5]:
+
+                pedaco = bloco.splitlines()[0][:40]
+
+                texto_resumo += f"• {pedaco} — {motivo}\n"
+
+            if len(duplicadas) > 5:
+
+                texto_resumo += (
+                    f"… e mais {len(duplicadas) - 5}\n"
                 )
-            )
-
-            resumo_id = (
-                f"🔢 *Contas adicionadas:* "
-                f"{quantidade_adicionada}"
-            )
 
         else:
 
-            login_id = adicionar_login(
-                produto_id,
-                contas[0],
+            texto_resumo += "\n✅ Nenhuma duplicata encontrada.\n"
+
+        botoes = []
+
+        if novas:
+
+            botoes.append(
+                [
+                    InlineKeyboardButton(
+                        f"✅ ADICIONAR SÓ AS NOVAS ({len(novas)})",
+                        callback_data="admin_confaddcontas_novas",
+                    )
+                ]
             )
 
-            quantidade_adicionada = 1
+        if duplicadas:
 
-            resumo_id = (
-                f"🆔 *ID da conta:* `{login_id}`"
+            botoes.append(
+                [
+                    InlineKeyboardButton(
+                        f"➕ ADICIONAR TODAS MESMO ASSIM "
+                        f"({len(contas)})",
+                        callback_data="admin_confaddcontas_todas",
+                    )
+                ]
             )
 
-        estoque = consultar_estoque_logins(
-            produto_id
+        botoes.append(
+            [
+                InlineKeyboardButton(
+                    "❌ CANCELAR",
+                    callback_data="admin_menu",
+                )
+            ]
         )
 
-        await anunciar_abastecimento_grupo(
-            context,
-            produto_id,
-            nome,
-            float(preco),
-            quantidade_adicionada,
-        )
+        if not novas and not duplicadas:
 
-        await notificar_reposicao_estoque(
-            context,
-            produto_id,
-            nome,
-        )
+            context.user_data.pop(
+                "add_contas_pendentes", None
+            )
 
-        limpar_estado(context)
+            await update.message.reply_text(
+                "❌ Não encontrei nenhuma conta válida "
+                "no texto enviado."
+            )
+
+            return True
 
         await update.message.reply_text(
-            "✅ *CONTA(S) ADICIONADA(S)!*\n\n"
-            f"📦 *Produto:* {nome}\n"
-            f"{resumo_id}\n"
-            f"📊 *Contas disponíveis:* {estoque}",
-            reply_markup=InlineKeyboardMarkup(
-                [
-                    [
-                        InlineKeyboardButton(
-                            "➕ ADICIONAR OUTRA",
-                            callback_data=(
-                                f"admin_add_login_{produto_id}"
-                            ),
-                        )
-                    ],
-                    [
-                        InlineKeyboardButton(
-                            "📦 GERENCIAR PRODUTO",
-                            callback_data=(
-                                f"admin_produto_{produto_id}"
-                            ),
-                        )
-                    ],
-                    [
-                        InlineKeyboardButton(
-                            "👑 PAINEL ADMIN",
-                            callback_data="admin_menu",
-                        )
-                    ],
-                ]
-            ),
+            texto_resumo,
+            reply_markup=InlineKeyboardMarkup(botoes),
             parse_mode="Markdown",
         )
 
@@ -5081,6 +5260,56 @@ async def botoes_admin(
             query,
             context,
             produto_id,
+        )
+
+        return
+
+    # =====================================================
+    # CONFIRMAR CADASTRO DE CONTAS (novas / todas)
+    # =====================================================
+
+    if acao in (
+        "admin_confaddcontas_novas",
+        "admin_confaddcontas_todas",
+    ):
+
+        pendente = context.user_data.get(
+            "add_contas_pendentes"
+        )
+
+        if not pendente:
+
+            await query.answer(
+                "❌ Essa confirmação expirou. Cole as "
+                "contas de novo.",
+                show_alert=True,
+            )
+
+            return
+
+        if acao == "admin_confaddcontas_novas":
+            contas = pendente["novas"]
+        else:
+            contas = (
+                pendente["novas"] + pendente["duplicadas"]
+            )
+
+        context.user_data.pop("add_contas_pendentes", None)
+
+        if not contas:
+
+            await query.answer(
+                "❌ Nenhuma conta nova pra adicionar.",
+                show_alert=True,
+            )
+
+            return
+
+        await _finalizar_adicionar_contas(
+            query,
+            context,
+            pendente["produto_id"],
+            contas,
         )
 
         return
