@@ -105,6 +105,13 @@ from catalogo import (
 )
 from pushinpay import criar_pix, consultar_pix
 
+from database import (
+    cadastrar_produto as _cadastrar_produto_lote,
+    buscar_categoria_por_nome as _buscar_categoria_lote,
+    definir_categoria_produto as _definir_categoria_lote,
+    listar_todos_produtos as _listar_produtos_lote,
+)
+
 from admin import (
     comando_admin,
     botoes_admin,
@@ -2794,6 +2801,117 @@ async def comando_grupo_id(
         f"`{update.effective_chat.id}`\n\n"
         "Cole esse número no painel admin, em "
         "\"🗂️ GRUPO DE SUPORTE (TÓPICOS)\".",
+        parse_mode="Markdown",
+    )
+
+
+# =========================================================
+# COMANDO /cadastrarlote (SÓ ADMIN) — CADASTRO EM MASSA
+# =========================================================
+# Comando de uso único: cadastra de uma vez a lista de
+# produtos que o admin pediu, todos com preço 0 (pra ele
+# ajustar o preço de cada um depois, no painel normal) e
+# já na categoria "Contas". Pode rodar mais de uma vez sem
+# duplicar — pula quem já existe com o mesmo nome.
+
+NOMES_LOTE_CONTAS = [
+    "CONTA CLARO TV + TELECINE",
+    "CONTA CLARO TV + TELECINE + HBO",
+    "CONTA DISNEY PADRÃO COM ANUNCIO",
+    "CONTA GLOBOPLAY + CANAIS",
+    "CONTA GLOBOPLAY + CANAIS + PREMIERE",
+    "CONTA GLOBOPLAY + CANAIS + TELECINE",
+    "CONTA MAX BASICA COM ANUNCIO",
+    "CONTA MAX PLATINIUM",
+    "CONTA NETFLIX 4K",
+    "CONTA PRIME VIDEO + MAX",
+    "CONTA PRIME VIDEO + PREMIERE",
+    "CONTA PRIME VIDEO 8 ADICIONAIS",
+    "CONTA SKY+ COMPLETA",
+]
+
+
+async def comando_cadastrarlote(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+):
+
+    usuario = update.effective_user
+
+    if not usuario or not update.message:
+        return
+
+    if not eh_admin_principal(usuario.id):
+        return
+
+    if update.effective_chat.type != "private":
+
+        await update.message.reply_text(
+            "❌ Use esse comando no privado com o bot."
+        )
+
+        return
+
+    existentes = {
+        p[1].strip().lower()
+        for p in _listar_produtos_lote()
+    }
+
+    categoria = _buscar_categoria_lote("Contas")
+    categoria_id = categoria[0] if categoria else None
+
+    criados = []
+    pulados = []
+
+    for nome in NOMES_LOTE_CONTAS:
+
+        if nome.strip().lower() in existentes:
+            pulados.append(nome)
+            continue
+
+        produto_id = _cadastrar_produto_lote(
+            nome,
+            "",
+            0,
+            0,
+        )
+
+        if categoria_id:
+            _definir_categoria_lote(
+                produto_id,
+                categoria_id,
+            )
+
+        criados.append(nome)
+
+    texto = (
+        "📦 *CADASTRO EM LOTE CONCLUÍDO*\n\n"
+        f"✅ Criados ({len(criados)}):\n"
+    )
+
+    texto += (
+        "\n".join(f"• {n}" for n in criados)
+        if criados
+        else "—"
+    )
+
+    if pulados:
+
+        texto += (
+            f"\n\n⏭️ Já existiam, pulados "
+            f"({len(pulados)}):\n"
+        )
+
+        texto += "\n".join(f"• {n}" for n in pulados)
+
+    texto += (
+        "\n\n⚠️ Todos entraram com preço R$ 0,00 e sem "
+        "estoque. Ajuste o preço e adicione as contas de "
+        "cada um pelo painel admin normal."
+    )
+
+    await update.message.reply_text(
+        texto,
         parse_mode="Markdown",
     )
 
@@ -5609,6 +5727,13 @@ def main():
         CommandHandler(
             "grupoid",
             comando_grupo_id,
+        )
+    )
+
+    application.add_handler(
+        CommandHandler(
+            "cadastrarlote",
+            comando_cadastrarlote,
         )
     )
 

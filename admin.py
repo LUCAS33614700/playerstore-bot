@@ -25,6 +25,7 @@ from database import (
     adicionar_varios_logins,
     listar_logins_produto,
     listar_logins_disponiveis,
+    atualizar_dados_login,
     consultar_estoque_logins,
     excluir_login,
     alterar_preco,
@@ -1125,6 +1126,69 @@ async def processar_admin_texto(
 
         await update.message.reply_text(
             "❌ Envie os dados da conta em formato de texto."
+        )
+
+        return True
+
+    # =====================================================
+    # EDITAR LOGIN
+    # =====================================================
+
+    if acao == "editar_login":
+
+        login_id = context.user_data.get(
+            "admin_login_id"
+        )
+
+        from database import consultar_login
+
+        login = consultar_login(login_id)
+
+        if not login or login[3] != "disponivel":
+
+            limpar_estado(context)
+
+            await update.message.reply_text(
+                "❌ Essa conta não existe mais ou já foi "
+                "vendida — a edição foi cancelada."
+            )
+
+            return True
+
+        atualizado = atualizar_dados_login(
+            login_id,
+            texto,
+        )
+
+        limpar_estado(context)
+
+        if not atualizado:
+
+            await update.message.reply_text(
+                "❌ Não foi possível salvar — tente de novo."
+            )
+
+            return True
+
+        produto_id = login[1]
+
+        await update.message.reply_text(
+            "✅ *CONTA ATUALIZADA!*\\n\\n"
+            f"🆔 ID: `{login_id}`\\n"
+            f"📦 Dados novos:\\n`{texto}`",
+            reply_markup=InlineKeyboardMarkup(
+                [
+                    [
+                        InlineKeyboardButton(
+                            "📋 VER CONTAS",
+                            callback_data=(
+                                f"admin_ver_logins_{produto_id}"
+                            ),
+                        )
+                    ]
+                ]
+            ),
+            parse_mode="Markdown",
         )
 
         return True
@@ -2618,9 +2682,9 @@ async def admin_ver_logins(
         botoes.append(
             [
                 InlineKeyboardButton(
-                    f"🗑️ #{login_id} {resumo}",
+                    f"#{login_id} {resumo}",
                     callback_data=(
-                        f"admin_excluir_login_{login_id}"
+                        f"admin_login_detalhe_{login_id}"
                     ),
                 )
             ]
@@ -2634,7 +2698,7 @@ async def admin_ver_logins(
         )
 
     texto += (
-        "Clique em uma conta para excluir."
+        "Clique em uma conta para editar ou excluir."
     )
 
     botoes.append(
@@ -2662,6 +2726,147 @@ async def admin_ver_logins(
     await query.edit_message_text(
         texto,
         reply_markup=InlineKeyboardMarkup(botoes),
+        parse_mode="Markdown",
+    )
+
+
+# =========================================================
+# DETALHE DE UMA CONTA (EDITAR / EXCLUIR)
+# =========================================================
+
+async def admin_login_detalhe(
+    query,
+    login_id,
+):
+
+    if not await verificar_admin_query(query):
+
+        return
+
+    from database import consultar_login
+
+    login = consultar_login(login_id)
+
+    if not login:
+
+        await query.answer(
+            "❌ Conta não encontrada.",
+            show_alert=True,
+        )
+
+        return
+
+    produto_id = login[1]
+    dados = login[2]
+    status = login[3]
+
+    resumo = dados
+
+    if len(resumo) > 500:
+        resumo = resumo[:500] + "..."
+
+    texto = (
+        "📋 *DETALHE DA CONTA*\n\n"
+        f"🆔 ID: `{login_id}`\n"
+        f"📦 Dados:\n"
+        f"`{resumo}`\n"
+    )
+
+    botoes = []
+
+    if status == "disponivel":
+
+        botoes.append(
+            [
+                InlineKeyboardButton(
+                    "✏️ EDITAR",
+                    callback_data=(
+                        f"admin_editar_login_{login_id}"
+                    ),
+                ),
+                InlineKeyboardButton(
+                    "🗑️ EXCLUIR",
+                    callback_data=(
+                        f"admin_excluir_login_{login_id}"
+                    ),
+                ),
+            ]
+        )
+
+    else:
+
+        texto += (
+            "\n⚠️ Essa conta já foi vendida — não dá "
+            "pra editar nem excluir mais."
+        )
+
+    botoes.append(
+        [
+            InlineKeyboardButton(
+                "⬅️ Voltar",
+                callback_data=(
+                    f"admin_ver_logins_{produto_id}"
+                ),
+            )
+        ]
+    )
+
+    await query.edit_message_text(
+        texto,
+        reply_markup=InlineKeyboardMarkup(botoes),
+        parse_mode="Markdown",
+    )
+
+
+async def iniciar_editar_login(
+    query,
+    context,
+    login_id,
+):
+
+    if not await verificar_admin_query(query):
+
+        return
+
+    from database import consultar_login
+
+    login = consultar_login(login_id)
+
+    if not login or login[3] != "disponivel":
+
+        await query.answer(
+            "❌ Essa conta não pode mais ser editada.",
+            show_alert=True,
+        )
+
+        return
+
+    dados_atuais = login[2]
+
+    limpar_estado(context)
+
+    context.user_data["admin_acao"] = "editar_login"
+    context.user_data["admin_login_id"] = login_id
+
+    await query.edit_message_text(
+        "✏️ *EDITAR CONTA*\n\n"
+        f"🆔 ID: `{login_id}`\n\n"
+        "Dados atuais:\n"
+        f"`{dados_atuais}`\n\n"
+        "Envie o texto novo, completo, pra substituir "
+        "os dados dessa conta.",
+        reply_markup=InlineKeyboardMarkup(
+            [
+                [
+                    InlineKeyboardButton(
+                        "❌ CANCELAR",
+                        callback_data=(
+                            f"admin_login_detalhe_{login_id}"
+                        ),
+                    )
+                ]
+            ]
+        ),
         parse_mode="Markdown",
     )
 
@@ -5552,6 +5757,75 @@ async def botoes_admin(
             query,
             context,
             produto_id,
+        )
+
+        return
+
+    # =====================================================
+    # DETALHE DA CONTA (editar / excluir)
+    # =====================================================
+
+    if acao.startswith(
+        "admin_login_detalhe_"
+    ):
+
+        try:
+
+            login_id = int(
+                acao.replace(
+                    "admin_login_detalhe_",
+                    "",
+                    1,
+                )
+            )
+
+        except ValueError:
+
+            await query.answer(
+                "❌ Conta inválida.",
+                show_alert=True,
+            )
+
+            return
+
+        await admin_login_detalhe(
+            query,
+            login_id,
+        )
+
+        return
+
+    # =====================================================
+    # EDITAR LOGIN
+    # =====================================================
+
+    if acao.startswith(
+        "admin_editar_login_"
+    ):
+
+        try:
+
+            login_id = int(
+                acao.replace(
+                    "admin_editar_login_",
+                    "",
+                    1,
+                )
+            )
+
+        except ValueError:
+
+            await query.answer(
+                "❌ Conta inválida.",
+                show_alert=True,
+            )
+
+            return
+
+        await iniciar_editar_login(
+            query,
+            context,
+            login_id,
         )
 
         return

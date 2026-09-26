@@ -2679,6 +2679,36 @@ def consultar_login(login_id):
     return login
 
 
+def atualizar_dados_login(login_id, novos_dados):
+    """
+    Corrige os dados de uma conta já cadastrada (só faz
+    sentido pra contas ainda 'disponivel' — vendida não
+    deve ser mexida, o cliente já recebeu os dados antigos).
+    Retorna True se atualizou, False se a conta não existe
+    ou já foi vendida.
+    """
+
+    conn = conectar()
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        UPDATE logins
+        SET dados = ?
+        WHERE id = ?
+        AND status = 'disponivel'
+    """, (
+        novos_dados,
+        login_id,
+    ))
+
+    alterado = cursor.rowcount > 0
+
+    conn.commit()
+    conn.close()
+
+    return alterado
+
+
 def excluir_login(login_id):
 
     conn = conectar()
