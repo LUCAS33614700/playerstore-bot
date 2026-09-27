@@ -4237,6 +4237,7 @@ async def editar_ou_substituir(
     texto,
     reply_markup=None,
     parse_mode="Markdown",
+    imagem_url=None,
 ):
 
     mensagem = query.message
@@ -4249,6 +4250,38 @@ async def editar_ou_substituir(
         )
     )
 
+    # -----------------------------------------------------
+    # COM IMAGEM CONFIGURADA: sempre reenvia como foto
+    # -----------------------------------------------------
+    if imagem_url:
+
+        if mensagem:
+            try:
+                await mensagem.delete()
+            except Exception:
+                pass
+
+        try:
+            await context.bot.send_photo(
+                chat_id=mensagem.chat_id,
+                photo=imagem_url,
+                caption=texto,
+                reply_markup=reply_markup,
+                parse_mode=parse_mode,
+            )
+            return
+        except Exception as erro:
+            log_erro(
+                "ERRO AO ENVIAR FOTO DO PRODUTO:",
+                repr(erro),
+            )
+            # Se a URL falhar (link quebrado, bloqueado
+            # etc.), cai pro fluxo de texto normal abaixo
+            # em vez de deixar o cliente sem resposta.
+
+    # -----------------------------------------------------
+    # SEM IMAGEM (ou falha ao enviar a foto): texto normal
+    # -----------------------------------------------------
     if e_midia:
 
         try:
@@ -4726,6 +4759,10 @@ async def botoes(
         _, nome, descricao, preco, estoque = produto
         preco = float(preco)
 
+        imagem_url = obter_imagem_produto(
+            produto_id
+        )
+
         conn = conectar()
         cursor = conn.cursor()
 
@@ -4785,6 +4822,7 @@ async def botoes(
                     ]
                 ),
                 parse_mode="Markdown",
+                imagem_url=imagem_url,
             )
             return
 
@@ -4853,6 +4891,7 @@ async def botoes(
                 botoes_compra
             ),
             parse_mode="Markdown",
+            imagem_url=imagem_url,
         )
         return
 
