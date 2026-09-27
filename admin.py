@@ -1695,11 +1695,12 @@ async def processar_admin_texto(
                 "— não um link de página (como "
                 "share.google, encurtadores, posts "
                 "de rede social, etc).\n\n"
-                "Dica: se não tiver onde hospedar, "
-                "suba a imagem em imgur.com (sem "
-                "precisar de conta) e use o "
-                "\"Copy image link\" gerado por lá.\n\n"
-                "Envie o link novamente.",
+                "Dica: em vez de link, você pode "
+                "simplesmente enviar a *foto* aqui "
+                "no chat — é mais simples e nunca "
+                "falha.\n\n"
+                "Se preferir link mesmo assim, "
+                "envie o link novamente.",
                 parse_mode="Markdown",
             )
 
@@ -1715,7 +1716,14 @@ async def processar_admin_texto(
         await update.message.reply_text(
             "✅ *IMAGEM DO PRODUTO ATUALIZADA!*\n\n"
             "Ela vai aparecer nos resultados de "
-            "busca inline a partir de agora.",
+            "busca inline e na tela do produto a "
+            "partir de agora.\n\n"
+            "⚠️ Alguns sites de imagem (imgur, "
+            "postimg, etc.) bloqueiam o Telegram "
+            "de acessar a imagem mesmo com o link "
+            "certo. Se ela não aparecer, volte "
+            "aqui e envie a *foto* diretamente em "
+            "vez do link.",
             reply_markup=InlineKeyboardMarkup(
                 [
                     [
@@ -4366,6 +4374,72 @@ async def processar_admin_midia(
         "admin_acao"
     )
 
+    if acao == "definir_imagem_produto":
+
+        produto_id = context.user_data.get(
+            "admin_produto_id"
+        )
+
+        if not produto_id:
+
+            limpar_estado(context)
+
+            await update.message.reply_text(
+                "❌ Produto não selecionado."
+            )
+
+            return True
+
+        file_id = None
+
+        if update.message.photo:
+            file_id = update.message.photo[-1].file_id
+
+        if not file_id:
+
+            await update.message.reply_text(
+                "❌ Envie uma foto (ou o link direto "
+                "da imagem em texto)."
+            )
+
+            return True
+
+        definir_imagem_produto(
+            produto_id,
+            file_id,
+        )
+
+        limpar_estado(context)
+
+        await update.message.reply_text(
+            "✅ *IMAGEM DO PRODUTO ATUALIZADA!*\n\n"
+            "Como foi enviada direto pelo Telegram, "
+            "essa imagem não depende de nenhum site "
+            "externo e não vai falhar por link "
+            "quebrado.",
+            reply_markup=InlineKeyboardMarkup(
+                [
+                    [
+                        InlineKeyboardButton(
+                            "📦 GERENCIAR PRODUTO",
+                            callback_data=(
+                                f"admin_produto_{produto_id}"
+                            ),
+                        )
+                    ],
+                    [
+                        InlineKeyboardButton(
+                            "👑 PAINEL ADMIN",
+                            callback_data="admin_menu",
+                        )
+                    ],
+                ]
+            ),
+            parse_mode="Markdown",
+        )
+
+        return True
+
     if acao != "aguardando_imagem_catalogo":
 
         return False
@@ -4505,14 +4579,18 @@ async def iniciar_imagem_produto(
     ] = produto_id
 
     await query.edit_message_text(
-        "🖼️ *IMAGEM DO PRODUTO (URL)*\n\n"
+        "🖼️ *IMAGEM DO PRODUTO*\n\n"
         f"📦 Produto: {produto[1]}\n\n"
-        "Envie o link (URL) da imagem que vai "
-        "aparecer nos resultados de busca inline.\n\n"
-        "Precisa ser um link direto pra imagem "
-        "(terminando em `.jpg`, `.png`, `.webp` "
-        "ou `.gif`) — não um link de página ou "
-        "de compartilhamento.",
+        "Envie a *foto* aqui direto no chat "
+        "(recomendado — nunca falha), ou, se "
+        "preferir, um link (URL) direto da "
+        "imagem.\n\n"
+        "Se for usar link, precisa terminar em "
+        "`.jpg`, `.png`, `.webp` ou `.gif` — e "
+        "vários sites (imgur, postimg, etc.) "
+        "bloqueiam o Telegram de acessar a "
+        "imagem mesmo com o link certo, então "
+        "enviar a foto é mais seguro.",
         reply_markup=InlineKeyboardMarkup(
             [
                 [

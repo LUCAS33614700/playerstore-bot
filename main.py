@@ -14,6 +14,7 @@ from telegram import (
     CopyTextButton,
     InlineQueryResultArticle,
     InlineQueryResultPhoto,
+    InlineQueryResultCachedPhoto,
     InputTextMessageContent,
     BotCommand,
 )
@@ -2423,15 +2424,32 @@ async def pesquisa_inline(
             f"📦 *Estoque:* {estoque}"
         )
 
-        if imagem_url:
-            # Com imagem configurada: mostra a foto de
-            # verdade na lista de resultados e envia a
-            # foto (com legenda) como mensagem no chat.
+        if imagem_url and imagem_url.startswith(
+            ("http://", "https://")
+        ):
+            # Imagem configurada por link direto.
             resultados.append(
                 InlineQueryResultPhoto(
                     id=str(produto_id),
                     photo_url=imagem_url,
                     thumbnail_url=imagem_url,
+                    title=nome,
+                    description=(
+                        f"Valor: R${preco:.2f} | "
+                        f"Estoque: {estoque}"
+                    ),
+                    caption=legenda,
+                    parse_mode="Markdown",
+                    reply_markup=botao,
+                )
+            )
+        elif imagem_url:
+            # Imagem enviada direto pelo Telegram
+            # (file_id) — mais confiável que link.
+            resultados.append(
+                InlineQueryResultCachedPhoto(
+                    id=str(produto_id),
+                    photo_file_id=imagem_url,
                     title=nome,
                     description=(
                         f"Valor: R${preco:.2f} | "
