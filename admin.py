@@ -26,6 +26,7 @@ from database import (
     listar_logins_produto,
     listar_logins_disponiveis,
     atualizar_dados_login,
+    obter_imagem_produto,
     consultar_estoque_logins,
     excluir_login,
     alterar_preco,
@@ -717,6 +718,16 @@ async def admin_detalhes_produto(
         else "⚠️ Não definida"
     )
 
+    imagem_atual = obter_imagem_produto(
+        produto_id
+    )
+
+    texto_imagem = (
+        "✅ Configurada"
+        if imagem_atual
+        else "⚠️ Sem imagem"
+    )
+
     texto = (
         "📦 *GERENCIAR PRODUTO*\n\n"
         "━━━━━━━━━━━━━━━━━━\n"
@@ -726,6 +737,7 @@ async def admin_detalhes_produto(
         f"🔐 *Contas disponíveis:* {estoque_real}\n"
         f"🗂️ *Categoria:* {texto_categoria}\n"
         f"⏳ *Duração:* {texto_duracao}\n"
+        f"🖼️ *Imagem:* {texto_imagem}\n"
         "━━━━━━━━━━━━━━━━━━\n\n"
         f"📝 {descricao or 'Sem descrição'}"
     )
