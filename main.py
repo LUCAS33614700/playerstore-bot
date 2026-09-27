@@ -13,6 +13,7 @@ from telegram import (
     InlineKeyboardMarkup,
     CopyTextButton,
     InlineQueryResultArticle,
+    InlineQueryResultPhoto,
     InputTextMessageContent,
     BotCommand,
 )
@@ -2403,42 +2404,64 @@ async def pesquisa_inline(
             produto_id
         )
 
-        kwargs = {}
+        botao = InlineKeyboardMarkup(
+            [
+                [
+                    InlineKeyboardButton(
+                        "🛒 Ver produto",
+                        callback_data=(
+                            f"produto_{produto_id}"
+                        ),
+                    )
+                ]
+            ]
+        )
+
+        legenda = (
+            f"🛍️ *{nome}*\n\n"
+            f"💰 *Valor:* R$ {preco:.2f}\n"
+            f"📦 *Estoque:* {estoque}"
+        )
 
         if imagem_url:
-            kwargs["thumbnail_url"] = imagem_url
-
-        resultados.append(
-            InlineQueryResultArticle(
-                id=str(produto_id),
-                title=nome,
-                description=(
-                    f"Valor: R${preco:.2f} | "
-                    f"Estoque: {estoque}"
-                ),
-                input_message_content=(
-                    InputTextMessageContent(
-                        f"🛍️ *{nome}*\n\n"
-                        f"💰 *Valor:* R$ {preco:.2f}\n"
-                        f"📦 *Estoque:* {estoque}",
-                        parse_mode="Markdown",
-                    )
-                ),
-                reply_markup=InlineKeyboardMarkup(
-                    [
-                        [
-                            InlineKeyboardButton(
-                                "🛒 Ver produto",
-                                callback_data=(
-                                    f"produto_{produto_id}"
-                                ),
-                            )
-                        ]
-                    ]
-                ),
-                **kwargs,
+            # Com imagem configurada: mostra a foto de
+            # verdade na lista de resultados e envia a
+            # foto (com legenda) como mensagem no chat.
+            resultados.append(
+                InlineQueryResultPhoto(
+                    id=str(produto_id),
+                    photo_url=imagem_url,
+                    thumbnail_url=imagem_url,
+                    title=nome,
+                    description=(
+                        f"Valor: R${preco:.2f} | "
+                        f"Estoque: {estoque}"
+                    ),
+                    caption=legenda,
+                    parse_mode="Markdown",
+                    reply_markup=botao,
+                )
             )
-        )
+        else:
+            # Sem imagem configurada: mantém o resultado
+            # em texto simples, sem foto.
+            resultados.append(
+                InlineQueryResultArticle(
+                    id=str(produto_id),
+                    title=nome,
+                    description=(
+                        f"Valor: R${preco:.2f} | "
+                        f"Estoque: {estoque}"
+                    ),
+                    input_message_content=(
+                        InputTextMessageContent(
+                            legenda,
+                            parse_mode="Markdown",
+                        )
+                    ),
+                    reply_markup=botao,
+                )
+            )
 
     try:
         await inline_query.answer(
