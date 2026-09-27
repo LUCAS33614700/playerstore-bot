@@ -2652,6 +2652,79 @@ def listar_contas_usuario(
     return resultados
 
 
+def listar_contas_vendidas_cliente(
+    cliente_id,
+):
+    """
+    Lista as contas (com os dados de acesso) já vendidas
+    pra um cliente específico. Usado pelo admin pra ver
+    o histórico de contas entregues a um cliente.
+    """
+
+    conn = conectar()
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        SELECT
+            l.id,
+            l.produto_id,
+            p.nome,
+            l.dados,
+            l.vendido_em
+        FROM logins l
+        INNER JOIN produtos p
+            ON p.id = l.produto_id
+        WHERE l.usuario_id = ?
+        AND l.status = 'vendido'
+        ORDER BY l.vendido_em DESC
+    """, (
+        cliente_id,
+    ))
+
+    resultados = cursor.fetchall()
+
+    conn.close()
+
+    return resultados
+
+
+def listar_logins_vendidos(
+    produto_id,
+):
+    """
+    Lista as contas de um produto que já foram vendidas,
+    junto com o cliente que comprou cada uma. Usado pelo
+    admin pra ver quem ficou com qual conta.
+    """
+
+    conn = conectar()
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        SELECT
+            l.id,
+            l.dados,
+            l.usuario_id,
+            u.nome,
+            u.username,
+            l.vendido_em
+        FROM logins l
+        LEFT JOIN usuarios u
+            ON u.id = l.usuario_id
+        WHERE l.produto_id = ?
+        AND l.status = 'vendido'
+        ORDER BY l.vendido_em DESC
+    """, (
+        produto_id,
+    ))
+
+    resultados = cursor.fetchall()
+
+    conn.close()
+
+    return resultados
+
+
 def consultar_login(login_id):
 
     conn = conectar()

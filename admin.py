@@ -56,6 +56,8 @@ from database import (
     adicionar_saldo,
     definir_limite_credito,
     obter_limite_credito,
+    listar_logins_vendidos,
+    listar_contas_vendidas_cliente,
 )
 
 
@@ -758,6 +760,15 @@ async def admin_detalhes_produto(
                 "📋 VER CONTAS",
                 callback_data=(
                     f"admin_ver_logins_{produto_id}"
+                ),
+            )
+        ],
+
+        [
+            InlineKeyboardButton(
+                "🧾 CONTAS VENDIDAS",
+                callback_data=(
+                    f"admin_contas_vendidas_{produto_id}"
                 ),
             )
         ],
@@ -2751,6 +2762,109 @@ async def admin_ver_logins(
 
 
 # =========================================================
+# CONTAS VENDIDAS DE UM PRODUTO (quem comprou o quê)
+# =========================================================
+
+async def admin_contas_vendidas_produto(
+    query,
+    produto_id,
+):
+
+    if not await verificar_admin_query(query):
+
+        return
+
+    produto = buscar_produto(
+        produto_id
+    )
+
+    if not produto:
+
+        await query.answer(
+            "❌ Produto não encontrado.",
+            show_alert=True,
+        )
+
+        return
+
+    vendidas = listar_logins_vendidos(
+        produto_id
+    )
+
+    botoes_voltar = [
+        [
+            InlineKeyboardButton(
+                "⬅️ Voltar",
+                callback_data=(
+                    f"admin_produto_{produto_id}"
+                ),
+            )
+        ]
+    ]
+
+    if not vendidas:
+
+        await query.edit_message_text(
+            "🧾 *CONTAS VENDIDAS*\n\n"
+            f"📦 {produto[1]}\n\n"
+            "❌ Nenhuma conta vendida ainda.",
+            reply_markup=InlineKeyboardMarkup(
+                botoes_voltar
+            ),
+            parse_mode="Markdown",
+        )
+
+        return
+
+    texto = (
+        "🧾 *CONTAS VENDIDAS*\n\n"
+        f"📦 *Produto:* {produto[1]}\n"
+        f"📊 *Total vendido:* {len(vendidas)}\n"
+        "━━━━━━━━━━━━━━━━━━\n\n"
+    )
+
+    for login_id, dados, cliente_id, nome, username, vendido_em in vendidas[:15]:
+
+        resumo = dados.replace("\n", " | ")
+
+        if len(resumo) > 60:
+            resumo = resumo[:60] + "..."
+
+        nome_cliente = nome or "Sem nome"
+        username_texto = (
+            f"@{username}" if username else "sem username"
+        )
+        data_texto = (
+            str(vendido_em)[:16]
+            if vendido_em
+            else "sem data"
+        )
+
+        texto += (
+            f"🆔 *#{login_id}* — 👤 {nome_cliente} "
+            f"({username_texto})\n"
+            f"🪪 ID do cliente: `{cliente_id}`\n"
+            f"📦 `{resumo}`\n"
+            f"📅 {data_texto}\n\n"
+        )
+
+    if len(vendidas) > 15:
+
+        texto += (
+            "⚠️ Mostrando somente as 15 vendas "
+            "mais recentes."
+        )
+
+    await query.edit_message_text(
+        texto,
+        reply_markup=InlineKeyboardMarkup(
+            botoes_voltar
+        ),
+        parse_mode="Markdown",
+    )
+
+
+# =========================================================
 # DETALHE DE UMA CONTA (EDITAR / EXCLUIR)
 # =========================================================
 
@@ -3724,6 +3838,15 @@ async def mostrar_ficha_cliente(
         [
             [
                 InlineKeyboardButton(
+                    "🧾 Contas vendidas",
+                    callback_data=(
+                        "admin_contas_cliente_"
+                        f"{cliente_id}"
+                    ),
+                )
+            ],
+            [
+                InlineKeyboardButton(
                     "💳 Definir limite de crédito",
                     callback_data=(
                         "admin_definir_limite_"
@@ -3761,6 +3884,112 @@ async def mostrar_ficha_cliente(
             reply_markup=botoes,
             parse_mode="Markdown",
         )
+
+
+# =========================================================
+# CONTAS VENDIDAS DE UM CLIENTE
+# =========================================================
+
+async def admin_contas_vendidas_cliente(
+    query,
+    cliente_id,
+):
+
+    if not await verificar_admin_query(query):
+
+        return
+
+    usuario = consultar_usuario(cliente_id)
+
+    if not usuario:
+
+        await query.answer(
+            "❌ Cliente não encontrado.",
+            show_alert=True,
+        )
+
+        return
+
+    nome = usuario[1]
+
+    contas = listar_contas_vendidas_cliente(
+        cliente_id
+    )
+
+    botoes_voltar = [
+        [
+            InlineKeyboardButton(
+                "⬅️ Voltar",
+                callback_data=(
+                    f"admin_ver_cliente_{cliente_id}"
+                ),
+            )
+        ]
+    ]
+
+    if not contas:
+
+        await query.edit_message_text(
+            "🧾 *CONTAS VENDIDAS*\n\n"
+            f"👤 Cliente: {nome or 'Sem nome'} "
+            f"(`{cliente_id}`)\n\n"
+            "❌ Esse cliente ainda não comprou "
+            "nenhuma conta.",
+            reply_markup=InlineKeyboardMarkup(
+                botoes_voltar
+            ),
+            parse_mode="Markdown",
+        )
+
+        return
+
+    texto = (
+        "🧾 *CONTAS VENDIDAS*\n\n"
+        f"👤 *Cliente:* {nome or 'Sem nome'} "
+        f"(`{cliente_id}`)\n"
+        f"📊 *Total:* {len(contas)}\n"
+        "━━━━━━━━━━━━━━━━━━\n\n"
+    )
+
+    for (
+        login_id,
+        produto_id,
+        produto_nome,
+        dados,
+        vendido_em,
+    ) in contas[:15]:
+
+        resumo = dados.replace("\n", " | ")
+
+        if len(resumo) > 60:
+            resumo = resumo[:60] + "..."
+
+        data_texto = (
+            str(vendido_em)[:16]
+            if vendido_em
+            else "sem data"
+        )
+
+        texto += (
+            f"🆔 *#{login_id}* — 📦 {produto_nome}\n"
+            f"🔐 `{resumo}`\n"
+            f"📅 {data_texto}\n\n"
+        )
+
+    if len(contas) > 15:
+
+        texto += (
+            "⚠️ Mostrando somente as 15 compras "
+            "mais recentes."
+        )
+
+    await query.edit_message_text(
+        texto,
+        reply_markup=InlineKeyboardMarkup(
+            botoes_voltar
+        ),
+        parse_mode="Markdown",
+    )
 
 
 async def iniciar_definir_limite_cliente(
@@ -5674,6 +5903,74 @@ async def botoes_admin(
         await admin_ver_logins(
             query,
             produto_id,
+        )
+
+        return
+
+    # =====================================================
+    # CONTAS VENDIDAS (POR PRODUTO)
+    # =====================================================
+
+    if acao.startswith(
+        "admin_contas_vendidas_"
+    ):
+
+        try:
+
+            produto_id = int(
+                acao.replace(
+                    "admin_contas_vendidas_",
+                    "",
+                    1,
+                )
+            )
+
+        except ValueError:
+
+            await query.answer(
+                "❌ Produto inválido.",
+                show_alert=True,
+            )
+
+            return
+
+        await admin_contas_vendidas_produto(
+            query,
+            produto_id,
+        )
+
+        return
+
+    # =====================================================
+    # CONTAS VENDIDAS (POR CLIENTE)
+    # =====================================================
+
+    if acao.startswith(
+        "admin_contas_cliente_"
+    ):
+
+        try:
+
+            cliente_id = int(
+                acao.replace(
+                    "admin_contas_cliente_",
+                    "",
+                    1,
+                )
+            )
+
+        except ValueError:
+
+            await query.answer(
+                "❌ Cliente inválido.",
+                show_alert=True,
+            )
+
+            return
+
+        await admin_contas_vendidas_cliente(
+            query,
+            cliente_id,
         )
 
         return
