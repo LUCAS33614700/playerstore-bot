@@ -1929,6 +1929,56 @@ def alterar_preco(
     return alterado
 
 
+def alterar_nome_produto(
+    produto_id,
+    nome,
+):
+
+    conn = conectar()
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        UPDATE produtos
+        SET nome = ?
+        WHERE id = ?
+    """, (
+        nome,
+        produto_id,
+    ))
+
+    alterado = cursor.rowcount > 0
+
+    conn.commit()
+    conn.close()
+
+    return alterado
+
+
+def alterar_descricao_produto(
+    produto_id,
+    descricao,
+):
+
+    conn = conectar()
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        UPDATE produtos
+        SET descricao = ?
+        WHERE id = ?
+    """, (
+        descricao,
+        produto_id,
+    ))
+
+    alterado = cursor.rowcount > 0
+
+    conn.commit()
+    conn.close()
+
+    return alterado
+
+
 def excluir_produto(
     produto_id,
 ):

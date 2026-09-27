@@ -30,7 +30,8 @@ from database import (
     consultar_estoque_logins,
     excluir_login,
     alterar_preco,
-    cadastrar_produto,
+    alterar_nome_produto,
+    alterar_descricao_produto,    cadastrar_produto,
     excluir_produto,
     listar_categorias,
     definir_categoria_produto,
@@ -757,6 +758,21 @@ async def admin_detalhes_produto(
 
         [
             InlineKeyboardButton(
+                "✏️ EDITAR NOME",
+                callback_data=(
+                    f"admin_editar_nome_{produto_id}"
+                ),
+            ),
+            InlineKeyboardButton(
+                "📝 EDITAR DESCRIÇÃO",
+                callback_data=(
+                    f"admin_editar_descricao_{produto_id}"
+                ),
+            ),
+        ],
+
+        [
+            InlineKeyboardButton(
                 "📋 VER CONTAS",
                 callback_data=(
                     f"admin_ver_logins_{produto_id}"
@@ -1404,6 +1420,128 @@ async def processar_admin_texto(
         await update.message.reply_text(
             "✅ *PREÇO ALTERADO!*\n\n"
             f"💰 Novo preço: R$ {preco:.2f}",
+            reply_markup=InlineKeyboardMarkup(
+                [
+                    [
+                        InlineKeyboardButton(
+                            "📦 GERENCIAR PRODUTO",
+                            callback_data=(
+                                f"admin_produto_{produto_id}"
+                            ),
+                        )
+                    ],
+                    [
+                        InlineKeyboardButton(
+                            "👑 PAINEL ADMIN",
+                            callback_data="admin_menu",
+                        )
+                    ],
+                ]
+            ),
+            parse_mode="Markdown",
+        )
+
+        return True
+
+    # =====================================================
+    # EDITAR NOME DO PRODUTO
+    # =====================================================
+
+    if acao == "editar_nome_produto":
+
+        produto_id = context.user_data.get(
+            "admin_produto_id"
+        )
+
+        novo_nome = texto.strip()
+
+        if not novo_nome:
+
+            await update.message.reply_text(
+                "❌ O nome não pode ficar vazio."
+            )
+
+            return True
+
+        sucesso = alterar_nome_produto(
+            produto_id,
+            novo_nome,
+        )
+
+        limpar_estado(context)
+
+        if not sucesso:
+
+            await update.message.reply_text(
+                "❌ Não foi possível alterar o nome."
+            )
+
+            return True
+
+        await update.message.reply_text(
+            "✅ *NOME ALTERADO!*\n\n"
+            f"🛍️ Novo nome: {novo_nome}",
+            reply_markup=InlineKeyboardMarkup(
+                [
+                    [
+                        InlineKeyboardButton(
+                            "📦 GERENCIAR PRODUTO",
+                            callback_data=(
+                                f"admin_produto_{produto_id}"
+                            ),
+                        )
+                    ],
+                    [
+                        InlineKeyboardButton(
+                            "👑 PAINEL ADMIN",
+                            callback_data="admin_menu",
+                        )
+                    ],
+                ]
+            ),
+            parse_mode="Markdown",
+        )
+
+        return True
+
+    # =====================================================
+    # EDITAR DESCRIÇÃO DO PRODUTO
+    # =====================================================
+
+    if acao == "editar_descricao_produto":
+
+        produto_id = context.user_data.get(
+            "admin_produto_id"
+        )
+
+        nova_descricao = texto.strip()
+
+        if not nova_descricao:
+
+            await update.message.reply_text(
+                "❌ A descrição não pode ficar vazia."
+            )
+
+            return True
+
+        sucesso = alterar_descricao_produto(
+            produto_id,
+            nova_descricao,
+        )
+
+        limpar_estado(context)
+
+        if not sucesso:
+
+            await update.message.reply_text(
+                "❌ Não foi possível alterar a "
+                "descrição."
+            )
+
+            return True
+
+        await update.message.reply_text(
+            "✅ *DESCRIÇÃO ALTERADA!*",
             reply_markup=InlineKeyboardMarkup(
                 [
                     [
@@ -2535,6 +2673,126 @@ async def iniciar_alterar_preco(
         "`5`\n"
         "`5,50`\n"
         "`10.00`",
+        reply_markup=InlineKeyboardMarkup(
+            [
+                [
+                    InlineKeyboardButton(
+                        "❌ CANCELAR",
+                        callback_data=(
+                            f"admin_produto_{produto_id}"
+                        ),
+                    )
+                ]
+            ]
+        ),
+        parse_mode="Markdown",
+    )
+
+
+# =========================================================
+# EDITAR NOME DO PRODUTO
+# =========================================================
+
+async def iniciar_editar_nome_produto(
+    query,
+    context,
+    produto_id,
+):
+
+    if not await verificar_admin_query(query):
+
+        return
+
+    produto = buscar_produto(
+        produto_id
+    )
+
+    if not produto:
+
+        await query.answer(
+            "❌ Produto não encontrado.",
+            show_alert=True,
+        )
+
+        return
+
+    limpar_estado(context)
+
+    context.user_data[
+        "admin_acao"
+    ] = "editar_nome_produto"
+
+    context.user_data[
+        "admin_produto_id"
+    ] = produto_id
+
+    await query.edit_message_text(
+        "✏️ *EDITAR NOME DO PRODUTO*\n\n"
+        f"📦 Nome atual: {produto[1]}\n\n"
+        "Digite o novo nome do produto.",
+        reply_markup=InlineKeyboardMarkup(
+            [
+                [
+                    InlineKeyboardButton(
+                        "❌ CANCELAR",
+                        callback_data=(
+                            f"admin_produto_{produto_id}"
+                        ),
+                    )
+                ]
+            ]
+        ),
+        parse_mode="Markdown",
+    )
+
+
+# =========================================================
+# EDITAR DESCRIÇÃO DO PRODUTO
+# =========================================================
+
+async def iniciar_editar_descricao_produto(
+    query,
+    context,
+    produto_id,
+):
+
+    if not await verificar_admin_query(query):
+
+        return
+
+    produto = buscar_produto(
+        produto_id
+    )
+
+    if not produto:
+
+        await query.answer(
+            "❌ Produto não encontrado.",
+            show_alert=True,
+        )
+
+        return
+
+    limpar_estado(context)
+
+    context.user_data[
+        "admin_acao"
+    ] = "editar_descricao_produto"
+
+    context.user_data[
+        "admin_produto_id"
+    ] = produto_id
+
+    descricao_atual = (
+        produto[2] or "Sem descrição"
+    )
+
+    await query.edit_message_text(
+        "📝 *EDITAR DESCRIÇÃO DO PRODUTO*\n\n"
+        f"📦 Produto: {produto[1]}\n\n"
+        f"Descrição atual:\n{descricao_atual}\n\n"
+        "Digite a nova descrição (pode usar "
+        "várias linhas).",
         reply_markup=InlineKeyboardMarkup(
             [
                 [
@@ -6003,6 +6261,76 @@ async def botoes_admin(
             return
 
         await iniciar_alterar_preco(
+            query,
+            context,
+            produto_id,
+        )
+
+        return
+
+    # =====================================================
+    # EDITAR NOME DO PRODUTO
+    # =====================================================
+
+    if acao.startswith(
+        "admin_editar_nome_"
+    ):
+
+        try:
+
+            produto_id = int(
+                acao.replace(
+                    "admin_editar_nome_",
+                    "",
+                    1,
+                )
+            )
+
+        except ValueError:
+
+            await query.answer(
+                "❌ Produto inválido.",
+                show_alert=True,
+            )
+
+            return
+
+        await iniciar_editar_nome_produto(
+            query,
+            context,
+            produto_id,
+        )
+
+        return
+
+    # =====================================================
+    # EDITAR DESCRIÇÃO DO PRODUTO
+    # =====================================================
+
+    if acao.startswith(
+        "admin_editar_descricao_"
+    ):
+
+        try:
+
+            produto_id = int(
+                acao.replace(
+                    "admin_editar_descricao_",
+                    "",
+                    1,
+                )
+            )
+
+        except ValueError:
+
+            await query.answer(
+                "❌ Produto inválido.",
+                show_alert=True,
+            )
+
+            return
+
+        await iniciar_editar_descricao_produto(
             query,
             context,
             produto_id,
