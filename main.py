@@ -4251,15 +4251,10 @@ async def editar_ou_substituir(
     )
 
     # -----------------------------------------------------
-    # COM IMAGEM CONFIGURADA: sempre reenvia como foto
+    # COM IMAGEM CONFIGURADA: tenta enviar como foto
+    # primeiro; só mexe na mensagem antiga se der certo.
     # -----------------------------------------------------
     if imagem_url:
-
-        if mensagem:
-            try:
-                await mensagem.delete()
-            except Exception:
-                pass
 
         try:
             await context.bot.send_photo(
@@ -4269,6 +4264,13 @@ async def editar_ou_substituir(
                 reply_markup=reply_markup,
                 parse_mode=parse_mode,
             )
+
+            if mensagem:
+                try:
+                    await mensagem.delete()
+                except Exception:
+                    pass
+
             return
         except Exception as erro:
             log_erro(
@@ -4276,8 +4278,9 @@ async def editar_ou_substituir(
                 repr(erro),
             )
             # Se a URL falhar (link quebrado, bloqueado
-            # etc.), cai pro fluxo de texto normal abaixo
-            # em vez de deixar o cliente sem resposta.
+            # etc.), a mensagem antiga continua intacta e
+            # cai pro fluxo de texto normal abaixo, em vez
+            # de deixar o cliente sem resposta.
 
     # -----------------------------------------------------
     # SEM IMAGEM (ou falha ao enviar a foto): texto normal
