@@ -11,7 +11,7 @@ from telegram import (
 )
 
 from telegram.ext import ContextTypes
-from telegram.error import RetryAfter, Forbidden, TelegramError
+from telegram.error import RetryAfter, Forbidden, TelegramError, BadRequest
 
 from config import ADMIN_ID
 
@@ -2534,6 +2534,10 @@ async def processar_admin_texto(
             "broadcast_texto"
         ] = texto
 
+        context.user_data.pop(
+            "broadcast_foto", None
+        )
+
         limpar_estado(context)
 
         total_usuarios = len(
@@ -4474,7 +4478,8 @@ async def iniciar_broadcast(
 
     await query.edit_message_text(
         "📢 *ENVIAR NOVIDADE*\n\n"
-        "Digite a mensagem que vai ser "
+        "Digite a mensagem (ou envie uma "
+        "*foto* com legenda) que vai ser "
         "enviada pra *todos* os clientes "
         "cadastrados no bot.\n\n"
         "Você vai poder revisar antes de "
@@ -4497,20 +4502,39 @@ async def _enviar_broadcast_um(
     context,
     usuario_id,
     texto,
+    foto=None,
 ):
     """Manda a mensagem de broadcast pra um único usuário,
     tratando corretamente o limite de envio do Telegram
     (RetryAfter) e usuários que bloquearam o bot (Forbidden).
-    Retorna True em caso de sucesso, False em falha."""
+    Se `foto` (file_id) for passada, envia como foto com
+    `texto` de legenda. Retorna True em sucesso, False em falha."""
 
     for tentativa in range(2):
 
         try:
-            await context.bot.send_message(
-                chat_id=usuario_id,
-                text=texto,
-                parse_mode="Markdown",
-            )
+            if foto:
+                try:
+                    await context.bot.send_photo(
+                        chat_id=usuario_id,
+                        photo=foto,
+                        caption=texto or None,
+                        parse_mode="Markdown",
+                    )
+                except BadRequest:
+                    # Markdown inválido na legenda: reenvia
+                    # como texto simples.
+                    await context.bot.send_photo(
+                        chat_id=usuario_id,
+                        photo=foto,
+                        caption=texto or None,
+                    )
+            else:
+                await context.bot.send_message(
+                    chat_id=usuario_id,
+                    text=texto,
+                    parse_mode="Markdown",
+                )
             return True
 
         except RetryAfter as erro:
@@ -4543,7 +4567,11 @@ async def executar_broadcast(
         "broadcast_texto"
     )
 
-    if not texto:
+    foto = context.user_data.get(
+        "broadcast_foto"
+    )
+
+    if not texto and not foto:
 
         await query.answer(
             "❌ Nenhuma mensagem pendente.",
@@ -4571,7 +4599,7 @@ async def executar_broadcast(
         resultados = await asyncio.gather(
             *(
                 _enviar_broadcast_um(
-                    context, usuario_id, texto
+                    context, usuario_id, texto, foto
                 )
                 for usuario_id in lote
             ),
@@ -4589,6 +4617,9 @@ async def executar_broadcast(
 
     context.user_data.pop(
         "broadcast_texto", None
+    )
+    context.user_data.pop(
+        "broadcast_foto", None
     )
 
     await query.edit_message_text(
@@ -4860,6 +4891,70 @@ async def processar_admin_midia(
     acao = context.user_data.get(
         "admin_acao"
     )
+
+    if acao == "definir_broadcast_texto":
+
+        if not update.message.photo:
+
+            await update.message.reply_text(
+                "❌ Envie um texto ou uma foto "
+                "(com legenda, se quiser)."
+            )
+
+            return True
+
+        file_id = update.message.photo[-1].file_id
+        legenda = update.message.caption or ""
+
+        context.user_data["broadcast_foto"] = file_id
+        context.user_data["broadcast_texto"] = legenda
+
+        limpar_estado(context)
+
+        total_usuarios = len(
+            listar_todos_usuarios()
+        )
+
+        botoes = InlineKeyboardMarkup(
+            [
+                [
+                    InlineKeyboardButton(
+                        "✅ CONFIRMAR ENVIO",
+                        callback_data=(
+                            "admin_confirmar_broadcast"
+                        ),
+                    )
+                ],
+                [
+                    InlineKeyboardButton(
+                        "❌ CANCELAR",
+                        callback_data="admin_menu",
+                    )
+                ],
+            ]
+        )
+
+        try:
+            await update.message.reply_photo(
+                photo=file_id,
+                caption=legenda or None,
+                parse_mode="Markdown",
+            )
+        except Exception:
+            await update.message.reply_photo(
+                photo=file_id,
+                caption=legenda or None,
+            )
+
+        await update.message.reply_text(
+            "👀 *PRÉVIA ACIMA*\n\n"
+            f"Vai ser enviada pra {total_usuarios} "
+            "cliente(s). Confirmar?",
+            reply_markup=botoes,
+            parse_mode="Markdown",
+        )
+
+        return True
 
     if acao == "definir_imagem_produto":
 
